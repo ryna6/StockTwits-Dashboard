@@ -12,12 +12,15 @@ type CardKey = "sentiment" | "volume" | "summary" | "news" | "popular" | "highli
 
 export default function App() {
   const [tickers, setTickers] = useState<{ symbol: string; displayName: string }[]>([]);
-  const [symbol, setSymbol] = useState<string>("RCAT");
+  const [symbol, setSymbol] = useState<string>(""); // start empty to avoid invalid early calls
   const [dash, setDash] = useState<DashboardResponse | null>(null);
   const [stats, setStats] = useState<StatsResponse | null>(null);
   const [range, setRange] = useState<30 | 90 | 365>(90);
+
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
   const [collapsed, setCollapsed] = useState<Record<CardKey, boolean>>({
     sentiment: true,
     volume: true,
@@ -28,10 +31,11 @@ export default function App() {
     charts: true
   });
 
-  const lastLoadRef = useRef<number>(0);
+  const lastSuccessfulLoadRef = useRef<number>(0);
 
   async function loadAll(sym: string, opts?: { includeStats?: boolean }) {
     setLoading(true);
+    setErrorMsg(null);
     try {
       const d = await apiDashboard(sym);
       setDash(d);
@@ -40,47 +44,71 @@ export default function App() {
         const s = await apiStats(sym, range);
         setStats(s);
       }
-      lastLoadRef.current = Date.now();
+
+      lastSuccessfulLoadRef.current = Date.now();
+    } catch (e: any) {
+      setDash(null);
+      setStats(null);
+      setErrorMsg(String(e?.message ?? e));
     } finally {
       setLoading(false);
     }
   }
 
   async function refreshNow() {
+    if (!symbol) return;
     setSyncing(true);
+    setErrorMsg(null);
     try {
       await apiSync(symbol);
       await loadAll(symbol, { includeStats: true });
+    } catch (e: any) {
+      setErrorMsg(String(e?.message ?? e));
     } finally {
       setSyncing(false);
     }
   }
 
-  // Initial config + load
+  // 1) Load config once. Pick first ticker from config.
   useEffect(() => {
     (async () => {
       const cfg = await apiConfig();
-      const opts = (cfg.tickers ?? []).map((t: any) => ({ symbol: t.symbol, displayName: t.displayName }));
+      const opts = (cfg.tickers ?? []).map((t: any) => ({
+        symbol: t.symbol,
+        displayName: t.displayName
+      }));
       setTickers(opts);
-      if (opts.length && !opts.find((o: any) => o.symbol === symbol)) setSymbol(opts[0].symbol);
-    })().catch(() => {});
+
+      if (!opts.length) {
+        setErrorMsg("No tickers returned by /api/config");
+        return;
+      }
+
+      // Keep current symbol if valid; otherwise default to first.
+      setSymbol((prev) => (prev && opts.some((o) => o.symbol === prev) ? prev : opts[0].symbol));
+    })().catch((e) => setErrorMsg(String(e?.message ?? e)));
   }, []);
 
-  // Load dashboard on symbol change
+  // 2) Load dashboard + stats whenever symbol or range changes.
   useEffect(() => {
+    if (!symbol) return;
     loadAll(symbol, { includeStats: true }).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [symbol, range]);
 
-  // Auto refresh when app becomes visible (but only if stale)
+  // 3) Auto-refresh only if we previously loaded successfully, and only when stale.
   useEffect(() => {
     const onVis = () => {
       if (document.visibilityState !== "visible") return;
-      const age = Date.now() - lastLoadRef.current;
+      if (!symbol) return;
+      if (lastSuccessfulLoadRef.current === 0) return; // avoid spamming if we've never loaded successfully
+
+      const age = Date.now() - lastSuccessfulLoadRef.current;
       if (age > 8 * 60 * 1000) {
         refreshNow().catch(() => {});
       }
     };
+
     window.addEventListener("focus", onVis);
     document.addEventListener("visibilitychange", onVis);
     return () => {
@@ -91,7 +119,7 @@ export default function App() {
   }, [symbol]);
 
   const header = useMemo(() => {
-    return dash ? `${dash.symbol} — ${dash.displayName}` : `${symbol}`;
+    return dash ? `${dash.symbol} — ${dash.displayName}` : symbol ? `${symbol}` : "—";
   }, [dash, symbol]);
 
   return (
@@ -111,11 +139,35 @@ export default function App() {
 
         <div className="controls">
           <TickerPicker value={symbol} options={tickers} onChange={setSymbol} />
-          <button className="primaryBtn" onClick={refreshNow} disabled={syncing}>
+          <button className="primaryBtn" onClick={refreshNow} disabled={syncing || !symbol}>
             {syncing ? "Syncing…" : "Refresh"}
           </button>
         </div>
       </header>
+
+      {errorMsg ? (
+        <div
+          style={{
+            border: "1px solid rgba(255,92,92,.35)",
+            background: "rgba(255,92,92,.08)",
+            padding: "10px 12px",
+            borderRadius: 12,
+            marginBottom: 12,
+            color: "var(--text)"
+          }}
+        >
+          <div style={{ fontWeight: 800, marginBottom: 6 }}>API Error</div>
+          <div
+            style={{
+              fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+              fontSize: 12,
+              opacity: 0.9
+            }}
+          >
+            {errorMsg}
+          </div>
+        </div>
+      ) : null}
 
       {loading && !dash ? <div className="muted pad">Loading…</div> : null}
 
@@ -138,7 +190,7 @@ export default function App() {
             }
           >
             <div className="muted">
-              Expanded sentiment deltas (1w/1m/3m/12m) can be computed from the daily series in the Charts card (kept centralized).
+              Expanded sentiment deltas can be computed from the daily series in Advanced Stats (kept centralized).
             </div>
           </Card>
 
@@ -147,7 +199,9 @@ export default function App() {
             subtitle="clean vs total + buzz multiple"
             collapsed={collapsed.volume}
             onToggle={() => setCollapsed((c) => ({ ...c, volume: !c.volume }))}
-            right={dash.volume24h.buzzMultiple != null ? <span className="pill">{dash.volume24h.buzzMultiple}× buzz</span> : null}
+            right={
+              dash.volume24h.buzzMultiple != null ? <span className="pill">{dash.volume24h.buzzMultiple}× buzz</span> : null
+            }
             overview={
               <div className="statRow">
                 <div className="statBig">{fmtInt(dash.volume24h.clean)}</div>
@@ -171,17 +225,16 @@ export default function App() {
               <div className="sectionTitle">Themes</div>
               <div className="chips">
                 {dash.summary24h.themes.map((t) => (
-                  <span key={t.name} className="chip">{t.name} · {t.count}</span>
+                  <span key={t.name} className="chip">
+                    {t.name} · {t.count}
+                  </span>
                 ))}
               </div>
             </div>
 
             <div className="section">
               <div className="sectionTitle">Evidence Posts</div>
-              <PostsList
-                posts={dash.summary24h.evidencePosts as any}
-                emptyText="No evidence posts."
-              />
+              <PostsList posts={dash.summary24h.evidencePosts as any} emptyText="No evidence posts." />
             </div>
           </Card>
 
@@ -191,9 +244,13 @@ export default function App() {
             collapsed={collapsed.news}
             onToggle={() => setCollapsed((c) => ({ ...c, news: !c.news }))}
             overview={
-              dash.summary24h.keyLinks?.[0]
-                ? <div>{dash.summary24h.keyLinks[0].domain} — {dash.summary24h.keyLinks[0].title ?? dash.summary24h.keyLinks[0].url}</div>
-                : <div className="muted">No key links.</div>
+              dash.summary24h.keyLinks?.[0] ? (
+                <div>
+                  {dash.summary24h.keyLinks[0].domain} — {dash.summary24h.keyLinks[0].title ?? dash.summary24h.keyLinks[0].url}
+                </div>
+              ) : (
+                <div className="muted">No key links.</div>
+              )
             }
           >
             <NewsList links={dash.summary24h.keyLinks} />
@@ -210,7 +267,9 @@ export default function App() {
                   <span className="mono">@{dash.preview.topPost.user.username}</span>: {dash.preview.topPost.body.slice(0, 140)}
                   {dash.preview.topPost.body.length > 140 ? "…" : ""}
                 </div>
-              ) : <div className="muted">No popular post.</div>
+              ) : (
+                <div className="muted">No popular post.</div>
+              )
             }
           >
             <PostsList posts={dash.popularPosts24h} emptyText="No popular posts in last 24h." />
@@ -224,10 +283,13 @@ export default function App() {
             overview={
               dash.preview.topHighlight ? (
                 <div>
-                  <span className="mono">@{dash.preview.topHighlight.user.username}</span>: {dash.preview.topHighlight.body.slice(0, 140)}
+                  <span className="mono">@{dash.preview.topHighlight.user.username}</span>:{" "}
+                  {dash.preview.topHighlight.body.slice(0, 140)}
                   {dash.preview.topHighlight.body.length > 140 ? "…" : ""}
                 </div>
-              ) : <div className="muted">No highlighted posts.</div>
+              ) : (
+                <div className="muted">No highlighted posts.</div>
+              )
             }
           >
             <PostsList posts={dash.highlightedPosts} emptyText="No highlighted posts found." />
@@ -241,14 +303,7 @@ export default function App() {
               onToggle={() => setCollapsed((c) => ({ ...c, charts: !c.charts }))}
               overview={<div className="muted">Charts are intentionally limited to keep iOS PWA fast.</div>}
             >
-              <ChartPanel
-                stats={stats}
-                range={range}
-                onRange={(r) => {
-                  setRange(r);
-                  // stats reloaded by effect
-                }}
-              />
+              <ChartPanel stats={stats} range={range} onRange={(r) => setRange(r)} />
             </Card>
           </div>
         </main>
@@ -258,4 +313,3 @@ export default function App() {
     </div>
   );
 }
-
