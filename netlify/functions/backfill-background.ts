@@ -3,12 +3,13 @@ import { requireSymbol } from "./lib/validate";
 import { fetchSymbolStreamPage, extractWatchersFromMessages } from "./lib/stocktwits";
 import { getJSON, setJSON, kState, kMsgs } from "./lib/blobs";
 import type { MessageLite } from "../../shared/types";
+import { TICKER_MAP } from "../../shared/tickers";
 import { toUTCDateISO } from "./lib/time";
 import { modelSentiment } from "./lib/sentiment";
 import { normalizedHash, updateDuplicateState, spamScore, countCashtags, countTokens } from "./lib/spam";
 import { updateSeries } from "./lib/aggregate";
 
-function toLite(symbol: string, m: any, duplicateSymbolsCount: number): MessageLite {
+function toLite(symbol: string, m: any, duplicateSymbolsCount: number, whitelistDisplayName?: string): MessageLite {
   const body = String(m?.body ?? "").trim();
   const createdAt = String(m?.created_at ?? "");
   const user = m?.user ?? {};
@@ -56,13 +57,15 @@ function toLite(symbol: string, m: any, duplicateSymbolsCount: number): MessageL
     user: {
       id: Number(user?.id ?? 0),
       username: String(user?.username ?? "unknown"),
+      displayName: whitelistDisplayName || undefined,
       followers,
       joinDate,
       official: Boolean(user?.official)
     },
-    stSentimentBasic: (m?.entities?.sentiment?.basic === "Bullish" || m?.entities?.sentiment?.basic === "Bearish")
-      ? m.entities.sentiment.basic
-      : null,
+    stSentimentBasic:
+      m?.entities?.sentiment?.basic === "Bullish" || m?.entities?.sentiment?.basic === "Bearish"
+        ? m.entities.sentiment.basic
+        : null,
     modelSentiment: ms,
     likes: Number(m?.likes?.total ?? 0),
     replies: Number(m?.conversation?.replies ?? 0),
@@ -77,13 +80,19 @@ function toLite(symbol: string, m: any, duplicateSymbolsCount: number): MessageL
 }
 
 export default async (req: Request, _context: Context) => {
-  // Background function: response is ignored; caller gets 202 immediately. :contentReference[oaicite:6]{index=6}
   try {
     if (req.method !== "POST") return new Response(null, { status: 405 });
 
     const body = await req.json().catch(() => ({}));
     const symbol = requireSymbol(body?.symbol);
     const days = Math.max(1, Math.min(90, Number(body?.days ?? 30)));
+
+    const cfg = TICKER_MAP[symbol];
+    const wlName = new Map(
+      (cfg.whitelistUsers ?? [])
+        .filter((u) => u.username && u.name)
+        .map((u) => [u.username.toLowerCase(), u.name as string])
+    );
 
     const cutoffMs = Date.now() - days * 24 * 3600 * 1000;
 
@@ -104,7 +113,7 @@ export default async (req: Request, _context: Context) => {
         if (!createdAt) continue;
         if (new Date(createdAt).getTime() < cutoffMs) {
           pageMax = undefined;
-          pages = 999999; // break outer
+          pages = 999999;
           break;
         }
 
@@ -113,7 +122,11 @@ export default async (req: Request, _context: Context) => {
         if (bodyText) {
           dupCount = await updateDuplicateState(normalizedHash(bodyText), symbol, createdAt);
         }
-        stored.push(toLite(symbol, m, dupCount));
+
+        const username = String(m?.user?.username ?? "unknown");
+        const displayName = wlName.get(username.toLowerCase()) || undefined;
+
+        stored.push(toLite(symbol, m, dupCount, displayName));
       }
 
       if (!oldestId) break;
@@ -167,4 +180,3 @@ export default async (req: Request, _context: Context) => {
     });
   }
 };
-
