@@ -269,7 +269,7 @@ a:hover{ text-decoration: underline; }
 }
 
 .cardTitle{
-  font-size: 16px; /* 4) bigger title */
+  font-size: 16px; /* bigger title */
   font-weight: 900;
   letter-spacing: -0.01em;
 }
@@ -296,7 +296,7 @@ a:hover{ text-decoration: underline; }
 
 .cardOverview{
   padding: 0 14px 14px;
-  font-size: 15px; /* 4) bigger content */
+  font-size: 15px;
   color: rgba(255,255,255,0.88);
 }
 
@@ -324,7 +324,7 @@ a:hover{ text-decoration: underline; }
 }
 
 .sentLabel{
-  font-size: 22px;     /* 6) large, same weight */
+  font-size: 22px;
   font-weight: 950;
   text-transform: lowercase;
 }
@@ -352,13 +352,13 @@ a:hover{ text-decoration: underline; }
 
 /* Summary */
 .summaryOverview p{
-  margin: 0 0 10px 0;         /* 3) paragraph spacing */
+  margin: 0 0 10px 0;
 }
 .summaryOverview p:last-child{
   margin-bottom: 0;
 }
 .summaryLabel{
-  font-weight: 900;           /* 4) different emphasis */
+  font-weight: 900;
   color: rgba(255,255,255,0.92);
 }
 .link{
@@ -498,4 +498,250 @@ a:hover{ text-decoration: underline; }
   .modalBody{
     padding-bottom: calc(14px + env(safe-area-inset-bottom));
   }
+}
+
+/* ==========================================================================
+   ADDITIONS / OVERRIDES (latest)
+   - Prevent bottom safe-area strip from shading/overlapping content
+   - Add delta (percent change) styling with red/green + stronger shade
+   - Add separated post/news list styling (clickable cards)
+   ========================================================================== */
+
+/* --- FIX: bottom safe-area should NEVER shade/overlay content --- */
+.bottomSafe{
+  height: calc(14px + env(safe-area-inset-bottom));
+  background: transparent !important;
+}
+
+/* Ensure the page always has enough real padding at bottom */
+.app{
+  padding-bottom: calc(24px + env(safe-area-inset-bottom));
+}
+
+/* --- Deltas (green/red with stronger shade for bigger moves) --- */
+.delta{
+  margin-left: auto;
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 0.01em;
+}
+.delta.neutral{ color: rgba(255,255,255,0.60); }
+.delta.up{ color: rgba(75, 220, 145, 0.85); }
+.delta.up.strong{ color: rgba(75, 220, 145, 0.98); }
+.delta.down{ color: rgba(255, 92, 92, 0.85); }
+.delta.down.strong{ color: rgba(255, 92, 92, 0.98); }
+
+/* Expanded modal change rows */
+.deltaGrid{
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.deltaRow{
+  display: grid;
+  grid-template-columns: 50px 1fr auto;
+  gap: 10px;
+  align-items: baseline;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(255,255,255,0.04);
+}
+.deltaTf{
+  font-weight: 950;
+  color: rgba(255,255,255,0.80);
+}
+.deltaVal{
+  color: rgba(255,255,255,0.85);
+  font-weight: 800;
+}
+
+/* Overview stacks (sent x ago under the main overview line) */
+.overviewStack{
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.overviewMain{
+  color: rgba(255,255,255,0.88);
+  font-size: 15px;
+  font-weight: 750;
+}
+.overviewStamp{
+  font-size: 12px;
+  font-weight: 800;
+  color: rgba(255,255,255,0.60);
+}
+
+/* News mini (overview) */
+.newsMiniSource{
+  display: block;
+  font-weight: 950;
+  color: rgba(255,255,255,0.82);
+  margin-bottom: 4px;
+}
+.newsMiniTitle{
+  display: block;
+  color: rgba(255,255,255,0.75);
+}
+
+/* --- POSTS: separated, clickable, with spacing between meta items --- */
+.posts{
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.post{
+  border-radius: 16px;
+  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(255,255,255,0.04);
+  padding: 12px;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+.post:hover{
+  background: rgba(255,255,255,0.06);
+}
+
+.postTop{
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.postUser{
+  font-weight: 950;
+  color: rgba(255,255,255,0.90);
+}
+.postTime{
+  font-size: 12px;
+  font-weight: 800;
+  color: rgba(255,255,255,0.60);
+  white-space: nowrap;
+}
+
+.postBody{
+  color: rgba(255,255,255,0.86);
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.postMeta{
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px; /* space so values aren’t touching */
+  margin-top: 10px;
+  font-size: 12px;
+  font-weight: 850;
+  color: rgba(255,255,255,0.75);
+}
+.metaItem{
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Badges */
+.badge{
+  margin-left: 8px;
+  font-size: 11px;
+  font-weight: 950;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(255,255,255,0.05);
+  color: rgba(255,255,255,0.78);
+}
+.badge.warn{
+  border-color: rgba(255,92,92,0.35);
+  background: rgba(255,92,92,0.10);
+  color: rgba(255,92,92,0.95);
+}
+
+/* Reply context block */
+.replyContext{
+  margin: 10px 0;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(0,0,0,0.18);
+}
+.replyHeader{
+  font-size: 12px;
+  font-weight: 950;
+  color: rgba(255,255,255,0.72);
+  margin-bottom: 6px;
+}
+.replyBody{
+  font-size: 13px;
+  color: rgba(255,255,255,0.78);
+}
+
+/* Links inside a post */
+.postLinks{
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+}
+.postLink{
+  font-size: 12px;
+  font-weight: 850;
+  color: rgba(170, 210, 255, 0.95);
+  text-decoration: none;
+}
+.postLink:hover{ text-decoration: underline; }
+
+/* --- NEWS: separated items with source above title --- */
+.newsList{
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.newsItem{
+  display: block;
+  border-radius: 16px;
+  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(255,255,255,0.04);
+  padding: 12px;
+  text-decoration: none;
+  transition: background 120ms ease;
+}
+.newsItem:hover{
+  background: rgba(255,255,255,0.06);
+}
+
+.newsSourceRow{
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+.newsSource{
+  font-size: 12px;
+  font-weight: 950;
+  color: rgba(255,255,255,0.78);
+  text-transform: lowercase;
+}
+.newsTime{
+  font-size: 12px;
+  font-weight: 850;
+  color: rgba(255,255,255,0.60);
+  white-space: nowrap;
+}
+.newsTitle{
+  font-size: 14px;
+  font-weight: 900;
+  color: rgba(255,255,255,0.88);
+  margin-bottom: 6px;
+}
+.newsUrl{
+  font-size: 12px;
+  font-weight: 750;
+  color: rgba(255,255,255,0.55);
+  word-break: break-word;
 }
