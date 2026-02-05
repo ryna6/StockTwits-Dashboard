@@ -5,7 +5,9 @@ export const TICKERS: TickerConfig[] = [
     symbol: "RCAT",
     displayName: "Red Cat Holdings",
     logoUrl: "https://logos.stocktwits-cdn.com/RCAT.png",
-    whitelistUsers: ["Duckworks"]
+    whitelistUsers: [ 
+      { username: "Duckworks", name: "Jeffrey Thompson" }
+    ]
   },
   {
     symbol: "UMAC",
