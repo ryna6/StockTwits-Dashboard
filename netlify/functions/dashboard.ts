@@ -12,7 +12,11 @@ function scorePopular(m: MessageLite) {
 }
 
 function domainOf(url: string): string {
-  try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return "unknown"; }
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return "unknown";
+  }
 }
 
 export default async (req: Request, _context: Context) => {
@@ -21,6 +25,21 @@ export default async (req: Request, _context: Context) => {
     const symbol = requireSymbol(url.searchParams.get("symbol"));
     const cfg = TICKER_MAP[symbol];
     const spamThreshold = envFloat("SPAM_THRESHOLD", 0.75);
+
+    const wlSet = new Set((cfg.whitelistUsers ?? []).map((u) => u.username.toLowerCase()));
+    const wlName = new Map(
+      (cfg.whitelistUsers ?? [])
+        .filter((u) => u.username && u.name)
+        .map((u) => [u.username.toLowerCase(), u.name as string])
+    );
+
+    const enrich = (m: MessageLite): MessageLite => {
+      const key = (m.user.username ?? "").toLowerCase();
+      const name = wlName.get(key);
+      if (!name) return m;
+      if (m.user.displayName === name) return m;
+      return { ...m, user: { ...m.user, displayName: m.user.displayName ?? name } };
+    };
 
     const cutoff = hoursAgoDate(24);
     const today = toUTCDateISO(new Date());
@@ -36,7 +55,8 @@ export default async (req: Request, _context: Context) => {
       .sort((a, b) => b.id - a.id);
 
     const total24h = combined.length;
-    const clean = combined.filter((m) => m.spam.score < spamThreshold);
+    const cleanRaw = combined.filter((m) => m.spam.score < spamThreshold);
+    const clean = cleanRaw.map(enrich);
 
     const sentimentScore =
       clean.length > 0 ? clean.reduce((acc, m) => acc + m.modelSentiment.score, 0) / clean.length : 0;
@@ -57,14 +77,14 @@ export default async (req: Request, _context: Context) => {
         ? last20.reduce((acc, d) => acc + (series.days[d]?.volumeClean ?? 0), 0) / last20.length
         : null;
 
-    const buzzMultiple = baseline && baseline > 0 ? (clean.length / baseline) : null;
+    const buzzMultiple = baseline && baseline > 0 ? clean.length / baseline : null;
 
     const popular = [...clean]
       .sort((a, b) => scorePopular(b) - scorePopular(a))
       .slice(0, 15);
 
     const highlights = clean
-      .filter((m) => m.user.official || cfg.whitelistUsers.includes(m.user.username))
+      .filter((m) => m.user.official || wlSet.has((m.user.username ?? "").toLowerCase()))
       .sort((a, b) => b.id - a.id)
       .slice(0, 25);
 
@@ -126,4 +146,3 @@ export default async (req: Request, _context: Context) => {
     });
   }
 };
-
