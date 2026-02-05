@@ -2,11 +2,37 @@ import React from "react";
 import type { MessageLite } from "../../shared/types";
 import { timeAgo } from "../lib/format";
 
+function clamp(n: number, lo: number, hi: number) {
+  return Math.max(lo, Math.min(hi, n));
+}
+
+function normalizeModelLabel(label: any): "bull" | "bear" | "neutral" {
+  const raw = String(label ?? "neutral").toLowerCase();
+  if (raw === "bull" || raw === "bullish") return "bull";
+  if (raw === "bear" || raw === "bearish") return "bear";
+  return "neutral";
+}
+
+function labelText(label: "bull" | "bear" | "neutral") {
+  switch (label) {
+    case "bull":
+      return "Bullish";
+    case "bear":
+      return "Bearish";
+    default:
+      return "Neutral";
+  }
+}
+
+function sentimentToIndex(score: number) {
+  const v = clamp(score, -1, 1);
+  return Math.round(((v + 1) / 2) * 100);
+}
+
 function openStockTwits(username: string, id: number) {
   window.open(`https://stocktwits.com/${encodeURIComponent(username)}/message/${id}`, "_blank");
 }
 
-// Allow partial objects safely (some lists may not include full schema)
 type PostLike = Partial<MessageLite> & {
   id: number;
   user: { username: string; official?: boolean; displayName?: string };
@@ -35,8 +61,9 @@ export default function PostsList(props: { posts: PostLike[]; emptyText: string 
         const spamScore = (p as any)?.spam?.score ?? 0;
         const isSpam = spamScore >= 0.75;
 
-        const msLabel = (p as any)?.modelSentiment?.label ?? "neutral";
+        const msLabel = normalizeModelLabel((p as any)?.modelSentiment?.label);
         const msScoreNum = Number((p as any)?.modelSentiment?.score ?? 0);
+        const msIdx = sentimentToIndex(msScoreNum);
 
         const likes = Number((p as any)?.likes ?? 0);
         const replies = Number((p as any)?.replies ?? 0);
@@ -78,14 +105,10 @@ export default function PostsList(props: { posts: PostLike[]; emptyText: string 
               <div className="postTime">{createdAt ? `sent ${timeAgo(createdAt)}` : ""}</div>
             </div>
 
-            {/* Reply context (if available) */}
             {replyTo ? (
               <div className="replyContext" onClick={(e) => e.stopPropagation()}>
                 <div className="replyHeader">
-                  Replying to{" "}
-                  <span className="mono">
-                    @{replyTo.user?.username ?? "unknown"}
-                  </span>
+                  Replying to <span className="mono">@{replyTo.user?.username ?? "unknown"}</span>
                   {replyTo.createdAt ? <span className="muted"> • {timeAgo(replyTo.createdAt)}</span> : null}
                 </div>
                 <div className="replyBody">
@@ -99,19 +122,16 @@ export default function PostsList(props: { posts: PostLike[]; emptyText: string 
               </div>
             ) : null}
 
-            <div className="postBody">
-              {body ? body : hasMedia ? "(Image/GIF post)" : "(Empty post)"}
-            </div>
+            <div className="postBody">{body ? body : hasMedia ? "(Image/GIF post)" : "(Empty post)"}</div>
 
             <div className="postMeta">
               <span className="metaItem">❤ {likes}</span>
               <span className="metaItem">↩ {replies}</span>
-              <span className="metaItem muted">
-                sentiment: {msLabel} ({msScoreNum.toFixed(2)})
+              <span className={"metaItem sentiment " + msLabel}>
+                {labelText(msLabel)} ({msIdx})
               </span>
             </div>
 
-            {/* If the post contains links, show them (clickable without triggering open-to-StockTwits) */}
             {Array.isArray((p as any)?.links) && (p as any).links.length ? (
               <div className="postLinks" onClick={(e) => e.stopPropagation()}>
                 {(p as any).links.slice(0, 3).map((l: any) => (
