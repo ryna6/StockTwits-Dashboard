@@ -174,8 +174,7 @@ export default function App() {
       {dash ? (
         <main className="grid">
           <Card
-            title="Headline Sentiment (24h)"
-            subtitle="Rule-based model sentiment (spam-filtered)"
+            title="Sentiment"
             collapsed={collapsed.sentiment}
             onToggle={() => setCollapsed((c) => ({ ...c, sentiment: !c.sentiment }))}
             right={<span className={"pill " + dash.sentiment24h.label}>{dash.sentiment24h.label}</span>}
@@ -189,14 +188,10 @@ export default function App() {
               </div>
             }
           >
-            <div className="muted">
-              Expanded sentiment deltas can be computed from the daily series in Advanced Stats (kept centralized).
-            </div>
           </Card>
 
           <Card
-            title="Message Volume (24h)"
-            subtitle="clean vs total + buzz multiple"
+            title="Message Volume"
             collapsed={collapsed.volume}
             onToggle={() => setCollapsed((c) => ({ ...c, volume: !c.volume }))}
             right={
@@ -209,14 +204,10 @@ export default function App() {
               </div>
             }
           >
-            <div className="muted">
-              Buzz multiple = 24h clean volume / average clean daily volume over the last ~20 stored days.
-            </div>
           </Card>
 
           <Card
-            title="Summary of Posts (24h)"
-            subtitle="Narrative + themes + evidence"
+            title="Posts Summary"
             collapsed={collapsed.summary}
             onToggle={() => setCollapsed((c) => ({ ...c, summary: !c.summary }))}
             overview={<div>{dash.summary24h.tldr}</div>}
@@ -240,7 +231,6 @@ export default function App() {
 
           <Card
             title="News / Links"
-            subtitle="Extracted from messages (grouped by URL)"
             collapsed={collapsed.news}
             onToggle={() => setCollapsed((c) => ({ ...c, news: !c.news }))}
             overview={
@@ -257,8 +247,7 @@ export default function App() {
           </Card>
 
           <Card
-            title="Popular Posts (24h)"
-            subtitle="likes + 2×replies + small follower weight"
+            title="Popular Posts"
             collapsed={collapsed.popular}
             onToggle={() => setCollapsed((c) => ({ ...c, popular: !c.popular }))}
             overview={
@@ -276,8 +265,7 @@ export default function App() {
           </Card>
 
           <Card
-            title="Highlighted Posts"
-            subtitle="whitelist + official users"
+            title="Key Users"
             collapsed={collapsed.highlights}
             onToggle={() => setCollapsed((c) => ({ ...c, highlights: !c.highlights }))}
             overview={
@@ -298,7 +286,6 @@ export default function App() {
           <div className="card full">
             <Card
               title="Advanced Stats"
-              subtitle="Daily series + price overlay (if FINNHUB_API_KEY is set)"
               collapsed={collapsed.charts}
               onToggle={() => setCollapsed((c) => ({ ...c, charts: !c.charts }))}
               overview={<div className="muted">Charts are intentionally limited to keep iOS PWA fast.</div>}
