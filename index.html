@@ -2,15 +2,26 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+
     <!-- iOS PWA-friendly viewport (locks zoom) -->
     <meta
       name="viewport"
       content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, user-scalable=no"
     />
+
     <meta name="theme-color" content="#0b0f14" />
+
+    <!-- PWA -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+
+    <!-- Icons -->
     <link rel="icon" href="/Icon-512x512.jpg" />
     <link rel="apple-touch-icon" href="/Icon-512x512.jpg" />
-    <link rel="manifest" href="/manifest.webmanifest" />
+
+    <!-- iOS standalone hints -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+
     <title>StockTwits Dashboard</title>
   </head>
   <body>
@@ -18,4 +29,3 @@
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
-
