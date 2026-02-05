@@ -25,7 +25,6 @@ async function acquireLock(symbol: string) {
     if (age < LOCK_STALE_MS) {
       throw new Error(`Sync already running for ${symbol}`);
     }
-    // stale lock
     await delKey(key).catch(() => {});
   }
   await setJSON(key, { symbol, at: nowISO() }, { onlyIfNew: true } as any);
@@ -35,7 +34,7 @@ async function releaseLock(symbol: string) {
   await delKey(kLock(symbol)).catch(() => {});
 }
 
-function toLite(symbol: string, m: any, duplicateSymbolsCount: number): MessageLite {
+function toLite(symbol: string, m: any, duplicateSymbolsCount: number, whitelistDisplayName?: string): MessageLite {
   const body = String(m?.body ?? "").trim();
   const createdAt = String(m?.created_at ?? "");
   const user = m?.user ?? {};
@@ -91,6 +90,7 @@ function toLite(symbol: string, m: any, duplicateSymbolsCount: number): MessageL
     user: {
       id: Number(user?.id ?? 0),
       username: String(user?.username ?? "unknown"),
+      displayName: whitelistDisplayName || undefined,
       followers,
       joinDate,
       official: Boolean(user?.official)
@@ -114,10 +114,7 @@ async function loadDay(symbol: string, date: string): Promise<MessageLite[]> {
 }
 
 async function saveDay(symbol: string, date: string, msgs: MessageLite[]) {
-  // keep days bounded (don’t let a day blob explode)
-  const trimmed = msgs
-    .sort((a, b) => b.id - a.id)
-    .slice(0, 2500);
+  const trimmed = msgs.sort((a, b) => b.id - a.id).slice(0, 2500);
   await setJSON(kMsgs(symbol, date), trimmed);
 }
 
@@ -125,18 +122,25 @@ export async function syncSymbol(symbol: string) {
   const cfg = TICKER_MAP[symbol];
   if (!cfg) throw new Error(`Unknown symbol: ${symbol}`);
 
+  const wlName = new Map(
+    (cfg.whitelistUsers ?? [])
+      .filter((u) => u.username && u.name)
+      .map((u) => [u.username.toLowerCase(), u.name as string])
+  );
+
   const maxPages = envInt("SYNC_MAX_PAGES", 10);
   const spamThreshold = envFloat("SPAM_THRESHOLD", 0.75);
 
   await acquireLock(symbol);
   try {
     const stateKey = kState(symbol);
-    const state = (await getJSON<SymbolState>(stateKey)) ?? {
-      symbol,
-      lastSeenId: null,
-      lastSyncAt: null,
-      lastWatchers: null
-    };
+    const state =
+      (await getJSON<SymbolState>(stateKey)) ?? {
+        symbol,
+        lastSeenId: null,
+        lastSyncAt: null,
+        lastWatchers: null
+      };
 
     let pageMax: number | undefined = undefined;
     let pages = 0;
@@ -149,11 +153,9 @@ export async function syncSymbol(symbol: string) {
       const msgs = resp.messages ?? [];
       if (msgs.length === 0) break;
 
-      // newest-first, so oldest is last
       const oldestId = Number(msgs[msgs.length - 1]?.id ?? 0);
       const newestId = Number(msgs[0]?.id ?? 0);
 
-      // If we have lastSeenId, collect only messages > lastSeenId
       if (state.lastSeenId !== null) {
         for (const m of msgs) {
           const id = Number(m?.id ?? 0);
@@ -162,49 +164,47 @@ export async function syncSymbol(symbol: string) {
         }
         if (foundLastSeen) break;
       } else {
-        // no lastSeenId: treat the latest page as "new"
         for (const m of msgs) collectedRaw.push(m);
-        // stop after first page for initial state (backfill handles history)
         break;
       }
 
-      // next page goes older
       if (!oldestId) break;
       pageMax = oldestId - 1;
       pages += 1;
 
-      // small early stop: if the newest page is already older than lastSeenId
       if (state.lastSeenId !== null && newestId <= state.lastSeenId) break;
     }
 
-    // watchers snapshot (latest available in messages)
-    const watchers = extractWatchersFromMessages(symbol, collectedRaw) ?? extractWatchersFromMessages(symbol, (await fetchSymbolStreamPage(symbol)).messages);
+    const watchers =
+      extractWatchersFromMessages(symbol, collectedRaw) ??
+      extractWatchersFromMessages(symbol, (await fetchSymbolStreamPage(symbol)).messages);
 
-    // Duplicate-blast detection: update hash state and compute duplicateSymbolsCount
     const liteMessages: MessageLite[] = [];
     for (const m of collectedRaw) {
       const body = String(m?.body ?? "").trim();
       const createdAt = String(m?.created_at ?? "");
       let dupCount = 1;
 
+      const username = String(m?.user?.username ?? "unknown");
+      const displayName = wlName.get(username.toLowerCase()) || undefined;
+
       if (body && createdAt) {
         const h = normalizedHash(body);
         dupCount = await updateDuplicateState(h, symbol, createdAt);
-        const lite = toLite(symbol, m, dupCount);
-        // if dup is high, force spam score high
+        const lite = toLite(symbol, m, dupCount, displayName);
         if (dupCount >= envInt("DUPLICATE_SYMBOL_THRESHOLD", 3)) {
           lite.spam.score = Math.max(lite.spam.score, 0.95);
           if (!lite.spam.reasons.includes("cross_ticker_duplicate")) lite.spam.reasons.push("cross_ticker_duplicate");
         }
         liteMessages.push(lite);
       } else {
-        liteMessages.push(toLite(symbol, m, dupCount));
+        liteMessages.push(toLite(symbol, m, dupCount, displayName));
       }
     }
 
-    // Dedupe by checking what's already in day blobs (bounded, cheap for small caps)
     const newMessages: MessageLite[] = [];
     const dayBuckets = new Map<string, MessageLite[]>();
+
     for (const lm of liteMessages) {
       const day = toUTCDateISO(new Date(lm.createdAt));
       if (!dayBuckets.has(day)) dayBuckets.set(day, []);
@@ -222,10 +222,8 @@ export async function syncSymbol(symbol: string) {
       newMessages.push(...filtered);
     }
 
-    // Update series (daily aggregates) incrementally
     await updateSeries(symbol, newMessages, watchers ?? null);
 
-    // Update state
     const newestStoredId =
       newMessages.length > 0 ? Math.max(...newMessages.map((m) => m.id)) : state.lastSeenId;
 
