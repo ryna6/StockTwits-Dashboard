@@ -30,9 +30,9 @@ function tokenize(raw: string): string[] {
     .filter(Boolean);
 }
 
-export function modelSentiment(body: string | null | undefined): { score: number; label: "bull" | "neutral" | "bear" } {
+export function modelSentiment(body: string | null | undefined): { score: number; label: "bull" | "Neutral" | "bear" } {
   const text = (body ?? "").trim();
-  if (!text) return { score: 0, label: "neutral" };
+  if (!text) return { score: 0, label: "Neutral" };
 
   const toks = tokenize(text);
   if (toks.length === 0) return { score: 0, label: "neutral" };
