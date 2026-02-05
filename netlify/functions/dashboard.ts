@@ -7,8 +7,66 @@ import { hoursAgoDate, toUTCDateISO, addDays } from "./lib/time";
 import { loadSeries } from "./lib/aggregate";
 import { build24hSummary } from "./lib/summarize";
 
+function safeMsg(x: any): MessageLite | null {
+  if (!x) return null;
+
+  const createdAt = typeof x.createdAt === "string" ? x.createdAt : (typeof x.created_at === "string" ? x.created_at : "");
+  if (!createdAt) return null;
+
+  const user = x.user ?? {};
+  const links = Array.isArray(x.links) ? x.links : [];
+
+  const modelSent = x.modelSentiment ?? {};
+  const spam = x.spam ?? {};
+
+  return {
+    id: Number(x.id ?? 0),
+    createdAt,
+    body: String(x.body ?? ""),
+    hasMedia: Boolean(x.hasMedia ?? false),
+    user: {
+      id: Number(user.id ?? 0),
+      username: String(user.username ?? "unknown"),
+      displayName: typeof user.displayName === "string" ? user.displayName : undefined,
+      followers: Number(user.followers ?? 0),
+      joinDate: typeof user.joinDate === "string" ? user.joinDate : undefined,
+      official: Boolean(user.official ?? false)
+    },
+    stSentimentBasic: x.stSentimentBasic ?? null,
+    modelSentiment: {
+      score: Number(modelSent.score ?? 0),
+      label: modelSent.label === "bull" || modelSent.label === "bear" || modelSent.label === "neutral" ? modelSent.label : "neutral"
+    },
+    likes: Number(x.likes ?? 0),
+    replies: Number(x.replies ?? 0),
+    symbolsTagged: Array.isArray(x.symbolsTagged) ? x.symbolsTagged.map((s: any) => String(s).toUpperCase()) : [],
+    links: links
+      .map((l: any) => ({
+        url: String(l?.url ?? "").trim(),
+        title: typeof l?.title === "string" ? l.title : undefined,
+        source: typeof l?.source === "string" ? l.source : undefined
+      }))
+      .filter((l: any) => l.url),
+    spam: {
+      score: Number(spam.score ?? 0),
+      reasons: Array.isArray(spam.reasons) ? spam.reasons.map((r: any) => String(r)) : [],
+      normalizedHash: typeof spam.normalizedHash === "string" ? spam.normalizedHash : undefined
+    }
+  };
+}
+
+function asArrayMessages(v: any): MessageLite[] {
+  if (!Array.isArray(v)) return [];
+  const out: MessageLite[] = [];
+  for (const x of v) {
+    const m = safeMsg(x);
+    if (m) out.push(m);
+  }
+  return out;
+}
+
 function scorePopular(m: MessageLite) {
-  return m.likes + 2 * m.replies + Math.min(50, Math.floor((m.user.followers ?? 0) / 200));
+  return (m.likes ?? 0) + 2 * (m.replies ?? 0) + Math.min(50, Math.floor((m.user.followers ?? 0) / 200));
 }
 
 function domainOf(url: string): string {
@@ -26,11 +84,12 @@ export default async (req: Request, _context: Context) => {
     const cfg = TICKER_MAP[symbol];
     const spamThreshold = envFloat("SPAM_THRESHOLD", 0.75);
 
-    const wlSet = new Set((cfg.whitelistUsers ?? []).map((u) => u.username.toLowerCase()));
+    const wlSet = new Set((cfg.whitelistUsers ?? []).map((u: any) => String(u.username ?? u).toLowerCase()));
     const wlName = new Map(
       (cfg.whitelistUsers ?? [])
-        .filter((u) => u.username && u.name)
-        .map((u) => [u.username.toLowerCase(), u.name as string])
+        .map((u: any) => ({ username: String(u.username ?? u).toLowerCase(), name: u.name }))
+        .filter((u: any) => u.username && u.name)
+        .map((u: any) => [u.username, String(u.name)])
     );
 
     const enrich = (m: MessageLite): MessageLite => {
@@ -45,31 +104,32 @@ export default async (req: Request, _context: Context) => {
     const today = toUTCDateISO(new Date());
     const yesterday = toUTCDateISO(addDays(new Date(), -1));
 
-    const [tMsgs, yMsgs] = await Promise.all([
-      getJSON<MessageLite[]>(kMsgs(symbol, today)),
-      getJSON<MessageLite[]>(kMsgs(symbol, yesterday))
+    const [tRaw, yRaw] = await Promise.all([
+      getJSON<any>(kMsgs(symbol, today)),
+      getJSON<any>(kMsgs(symbol, yesterday))
     ]);
 
-    const combined = [...(tMsgs ?? []), ...(yMsgs ?? [])]
+    const tMsgs = asArrayMessages(tRaw);
+    const yMsgs = asArrayMessages(yRaw);
+
+    const combined = [...tMsgs, ...yMsgs]
       .filter((m) => new Date(m.createdAt).getTime() >= cutoff.getTime())
       .sort((a, b) => b.id - a.id);
 
     const total24h = combined.length;
-    const cleanRaw = combined.filter((m) => m.spam.score < spamThreshold);
+    const cleanRaw = combined.filter((m) => (m.spam?.score ?? 0) < spamThreshold);
     const clean = cleanRaw.map(enrich);
 
     const sentimentScore =
-      clean.length > 0 ? clean.reduce((acc, m) => acc + m.modelSentiment.score, 0) / clean.length : 0;
+      clean.length > 0 ? clean.reduce((acc, m) => acc + (m.modelSentiment?.score ?? 0), 0) / clean.length : 0;
     const sentimentLabel = sentimentScore > 0.15 ? "bull" : sentimentScore < -0.15 ? "bear" : "neutral";
 
     const series = await loadSeries(symbol);
-    const prevDay = yesterday;
-    const prev = series.days?.[prevDay];
+    const prev = series.days?.[yesterday];
     const prevMean =
       prev && prev.sentimentCountClean > 0 ? prev.sentimentSumClean / prev.sentimentCountClean : null;
     const vsPrevDay = prevMean === null ? null : sentimentScore - prevMean;
 
-    // baseline 20-day average volume
     const sortedDates = Object.keys(series.days ?? {}).sort();
     const last20 = sortedDates.slice(-20);
     const baseline =
@@ -79,16 +139,13 @@ export default async (req: Request, _context: Context) => {
 
     const buzzMultiple = baseline && baseline > 0 ? clean.length / baseline : null;
 
-    const popular = [...clean]
-      .sort((a, b) => scorePopular(b) - scorePopular(a))
-      .slice(0, 15);
+    const popular = [...clean].sort((a, b) => scorePopular(b) - scorePopular(a)).slice(0, 15);
 
     const highlights = clean
       .filter((m) => m.user.official || wlSet.has((m.user.username ?? "").toLowerCase()))
       .sort((a, b) => b.id - a.id)
       .slice(0, 25);
 
-    // links
     const links: { url: string; title?: string }[] = [];
     for (const m of clean) for (const l of m.links) links.push({ url: l.url, title: l.title });
 
