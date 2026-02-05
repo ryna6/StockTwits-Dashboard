@@ -6,29 +6,20 @@ function openStockTwits(username: string, id: number) {
   window.open(`https://stocktwits.com/${encodeURIComponent(username)}/message/${id}`, "_blank");
 }
 
-// Some API payloads (e.g., Summary evidencePosts) may be partial objects
-// that don't include spam/modelSentiment. This component must never crash.
+// Allow partial objects safely (some lists may not include full schema)
 type PostLike = Partial<MessageLite> & {
   id: number;
-  user: { username: string; official?: boolean; displayName?: string; followers?: number };
+  user: { username: string; official?: boolean; displayName?: string };
   createdAt?: string;
   body?: string;
+  replyTo?: {
+    id: number;
+    createdAt?: string;
+    user?: { username?: string; displayName?: string };
+    body?: string;
+  };
+  replyToId?: number | null;
 };
-
-function clamp(n: number, lo: number, hi: number) {
-  return Math.max(lo, Math.min(hi, n));
-}
-
-function sentimentIndex(score: number | null | undefined) {
-  const s = Number.isFinite(score as any) ? Number(score) : 0;
-  return clamp(Math.round((s + 1) * 50), 0, 100);
-}
-
-function sentimentLabelNice(label: any) {
-  if (label === "bull") return "Bullish";
-  if (label === "bear") return "Bearish";
-  return "Neutral";
-}
 
 export default function PostsList(props: { posts: PostLike[]; emptyText: string }) {
   if (!props.posts || props.posts.length === 0) {
@@ -46,66 +37,85 @@ export default function PostsList(props: { posts: PostLike[]; emptyText: string 
 
         const msLabel = (p as any)?.modelSentiment?.label ?? "neutral";
         const msScoreNum = Number((p as any)?.modelSentiment?.score ?? 0);
-        const msIdx = sentimentIndex(msScoreNum);
-
-        const hasMedia = Boolean((p as any)?.hasMedia ?? false);
-        const body = (p.body ?? "").trim();
 
         const likes = Number((p as any)?.likes ?? 0);
         const replies = Number((p as any)?.replies ?? 0);
 
-        const links: { url: string; title?: string }[] = Array.isArray((p as any)?.links) ? (p as any).links : [];
+        const hasMedia = Boolean((p as any)?.hasMedia ?? false);
+        const body = (p.body ?? "").trim();
+
+        const createdAt = p.createdAt ?? null;
+        const replyTo = (p as any)?.replyTo ?? null;
+        const replyToId = (p as any)?.replyToId ?? null;
 
         return (
           <div
             key={p.id}
-            className="post clickable"
+            className="post"
             role="button"
             tabIndex={0}
             onClick={() => openStockTwits(username, p.id)}
             onKeyDown={(e) => {
               if (e.key === "Enter" || e.key === " ") openStockTwits(username, p.id);
             }}
-            title="Open on StockTwits"
           >
             <div className="postTop">
               <div className="postUser">
                 {displayName ? (
                   <>
-                    <span className="postDisplayName">{displayName}</span>
-                    <span className="muted"> </span>
+                    <span>{displayName}</span>
+                    <span className="muted">{" "}</span>
                     <span className="mono">(@{username})</span>
                   </>
                 ) : (
                   <span className="mono">@{username}</span>
                 )}
 
-                {p.user?.official ? <span className="badge">official</span> : null}
+                {p.user?.official ? <span className="badge">Official</span> : null}
                 {isSpam ? <span className="badge warn">spam</span> : null}
               </div>
 
-              <div className="postAgo">sent {timeAgo(p.createdAt ?? null)}</div>
+              <div className="postTime">{createdAt ? `sent ${timeAgo(createdAt)}` : ""}</div>
             </div>
 
-            <div className="postBody">{body ? body : hasMedia ? "(Image/GIF post)" : "(Empty post)"}</div>
+            {/* Reply context (if available) */}
+            {replyTo ? (
+              <div className="replyContext" onClick={(e) => e.stopPropagation()}>
+                <div className="replyHeader">
+                  Replying to{" "}
+                  <span className="mono">
+                    @{replyTo.user?.username ?? "unknown"}
+                  </span>
+                  {replyTo.createdAt ? <span className="muted"> • {timeAgo(replyTo.createdAt)}</span> : null}
+                </div>
+                <div className="replyBody">
+                  {(replyTo.body ?? "").trim().slice(0, 220)}
+                  {(replyTo.body ?? "").length > 220 ? "…" : ""}
+                </div>
+              </div>
+            ) : replyToId ? (
+              <div className="replyContext muted" onClick={(e) => e.stopPropagation()}>
+                Replying to message #{replyToId}
+              </div>
+            ) : null}
+
+            <div className="postBody">
+              {body ? body : hasMedia ? "(Image/GIF post)" : "(Empty post)"}
+            </div>
 
             <div className="postMeta">
-              <span>❤ {likes}</span>
-              <span>↩ {replies}</span>
-              <span className={`pill inline ${msLabel}`}>{sentimentLabelNice(msLabel)} ({msIdx})</span>
+              <span className="metaItem">❤ {likes}</span>
+              <span className="metaItem">↩ {replies}</span>
+              <span className="metaItem muted">
+                sentiment: {msLabel} ({msScoreNum.toFixed(2)})
+              </span>
             </div>
 
-            {links.length ? (
-              <div className="postLinks">
-                {links.slice(0, 3).map((l) => (
-                  <a
-                    key={l.url}
-                    href={l.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="postLink"
-                    onClick={(e) => e.stopPropagation()}
-                  >
+            {/* If the post contains links, show them (clickable without triggering open-to-StockTwits) */}
+            {Array.isArray((p as any)?.links) && (p as any).links.length ? (
+              <div className="postLinks" onClick={(e) => e.stopPropagation()}>
+                {(p as any).links.slice(0, 3).map((l: any) => (
+                  <a key={l.url} href={l.url} target="_blank" rel="noreferrer" className="postLink">
                     {l.title ?? l.url}
                   </a>
                 ))}
