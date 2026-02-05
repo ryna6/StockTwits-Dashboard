@@ -27,6 +27,17 @@ function clamp(n: number, lo: number, hi: number) {
   return Math.max(lo, Math.min(hi, n));
 }
 
+function labelText(label: "bull" | "bear" | "neutral") {
+  switch (label) {
+    case "bull":
+      return "Bullish";
+    case "bear":
+      return "Bearish";
+    default:
+      return "Neutral";
+  }
+}
+
 // Map [-1..+1] to [0..100], 50 neutral
 function sentimentToIndex(score: number) {
   const s = Number.isFinite(score) ? score : 0;
@@ -190,6 +201,22 @@ export default function App() {
     return `${dash.symbol} — ${dash.displayName}`;
   }, [dash, selectedTicker, symbol]);
 
+  const topThemesText = useMemo(() => {
+    const items = dash?.summary24h?.themes ?? [];
+    if (!items.length) return "—";
+    return items
+      .slice(0, 3)
+      .map((t) => t.name)
+      .filter(Boolean)
+      .join(", ");
+  }, [dash]);
+
+  const mostShared = useMemo(() => {
+    const l = dash?.summary24h?.keyLinks?.[0];
+    if (!l) return null;
+    return `${l.domain} — ${l.title ?? l.url}`;
+  }, [dash]);
+
   // ---- derive daily series deltas from stats (preferred baseline) ----
   const points = stats?.points ?? [];
 
@@ -216,8 +243,10 @@ export default function App() {
 
   const volNow = volDaily.length ? volDaily[volDaily.length - 1] : dash?.volume24h?.clean ?? 0;
 
+  const toneText = dash ? labelText(dash.sentiment24h.label) : "Neutral";
+
   // ---- timestamps for “sent x ago” ----
-  const summarySentAt = dash?.summary24h?.evidencePosts?.[0]?.createdAt ?? null;
+  const summarySentAt = (dash as any)?.posts24h?.[0]?.createdAt ?? dash?.summary24h?.evidencePosts?.[0]?.createdAt ?? null;
   const popularSentAt = dash?.preview?.topPost?.createdAt ?? null;
   const highlightsSentAt = dash?.preview?.topHighlight?.createdAt ?? null;
   const newsSharedAt = (dash?.summary24h?.keyLinks?.[0] as any)?.lastSharedAt ?? null;
@@ -227,37 +256,39 @@ export default function App() {
       <div className="topSafe" />
 
       <header className="header">
-        <div className="brand">
-          <div className="brandTitle">StockTwits Dashboard</div>
+        <div className="brandTitle">StockTwits Dashboard</div>
 
-          <div className="brandSubRow">
-            {selectedTicker?.logoUrl ? (
-              <img
-                className="brandLogo"
-                src={selectedTicker.logoUrl}
-                alt=""
-                loading="lazy"
-                referrerPolicy="no-referrer"
-                onError={(e) => {
-                  (e.currentTarget as HTMLImageElement).style.display = "none";
-                }}
-              />
-            ) : null}
-            <div className="brandSub">{headerLine}</div>
+        <div className="headerRow">
+          <div className="brand">
+            <div className="brandSubRow">
+              {selectedTicker?.logoUrl ? (
+                <img
+                  className="brandLogo"
+                  src={selectedTicker.logoUrl}
+                  alt=""
+                  loading="lazy"
+                  referrerPolicy="no-referrer"
+                  onError={(e) => {
+                    (e.currentTarget as HTMLImageElement).style.display = "none";
+                  }}
+                />
+              ) : null}
+              <div className="brandSub">{headerLine}</div>
+            </div>
+
+            <div className="brandMeta">
+              <span>Last sync: {dash?.lastSyncAt ? timeAgo(dash.lastSyncAt) : "—"}</span>
+              <span className="dot">•</span>
+              <span>Watchers: {dash?.watchers != null ? fmtInt(dash.watchers) : "—"}</span>
+            </div>
           </div>
 
-          <div className="brandMeta">
-            <span>Last sync: {dash?.lastSyncAt ? timeAgo(dash.lastSyncAt) : "—"}</span>
-            <span className="dot">•</span>
-            <span>Watchers: {dash?.watchers != null ? fmtInt(dash.watchers) : "—"}</span>
+          <div className="controls">
+            <TickerPicker value={symbol} options={tickers} onChange={setSymbol} />
+            <button className="refreshBtn" onClick={refreshNow} disabled={syncing || !symbol}>
+              {syncing ? "Syncing…" : "Refresh"}
+            </button>
           </div>
-        </div>
-
-        <div className="controls">
-          <TickerPicker value={symbol} options={tickers} onChange={setSymbol} />
-          <button className="refreshBtn" onClick={refreshNow} disabled={syncing || !symbol}>
-            {syncing ? "Syncing…" : "Refresh"}
-          </button>
         </div>
       </header>
 
@@ -279,7 +310,7 @@ export default function App() {
             onToggle={() => setCollapsed((c) => ({ ...c, sentiment: !c.sentiment }))}
             overview={
               <div className="sentOverview">
-                <div className={"sentLabel " + dash.sentiment24h.label}>{dash.sentiment24h.label}</div>
+                <div className={"sentLabel " + dash.sentiment24h.label}>{toneText}</div>
                 <div className="sentNumber">{sentNowIdx}</div>
                 <div className={deltaClass(sent1d?.pct ?? null)}>{fmtPct(sent1d?.pct ?? null)}</div>
               </div>
@@ -360,7 +391,18 @@ export default function App() {
             onToggle={() => setCollapsed((c) => ({ ...c, summary: !c.summary }))}
             overview={
               <div className="overviewStack">
-                <div className="overviewMain">{dash.summary24h.tldr}</div>
+                <div className="summaryOverview">
+                  <div className="overviewMain">{dash.summary24h.tldr}</div>
+                  <p>
+                    <span className="summaryLabel">Retail tone:</span> {labelText(dash.sentiment24h.label)} ({sentNowIdx})
+                  </p>
+                  <p>
+                    <span className="summaryLabel">Top themes:</span> {topThemesText}
+                  </p>
+                  <p>
+                    <span className="summaryLabel">Most shared link:</span> {mostShared ?? "—"}
+                  </p>
+                </div>
                 {summarySentAt ? <div className="overviewStamp">sent {timeAgo(summarySentAt)}</div> : null}
               </div>
             }
@@ -368,6 +410,18 @@ export default function App() {
             <div className="section">
               <div className="sectionTitle">Summary</div>
               <div className="tldr">{dash.summary24h.tldr}</div>
+            </div>
+
+            <div className="section">
+              <div className="sectionTitle">Retail tone</div>
+              <div className="tldr">
+                {labelText(dash.sentiment24h.label)} ({sentNowIdx}) · 24h sentiment (spam-filtered)
+              </div>
+            </div>
+
+            <div className="section">
+              <div className="sectionTitle">Most shared link</div>
+              <div className="tldr">{mostShared ?? "No links found."}</div>
             </div>
 
             <div className="section">
@@ -382,8 +436,8 @@ export default function App() {
             </div>
 
             <div className="section">
-              <div className="sectionTitle">Evidence posts</div>
-              <PostsList posts={dash.summary24h.evidencePosts as any} emptyText="No evidence posts." />
+              <div className="sectionTitle">Posts (last 24h)</div>
+              <PostsList posts={((dash as any)?.posts24h ?? dash.summary24h.evidencePosts) as any} emptyText="No posts found." />
             </div>
           </Card>
 
@@ -398,9 +452,7 @@ export default function App() {
                   {dash.summary24h.keyLinks?.[0] ? (
                     <>
                       <span className="newsMiniSource">{dash.summary24h.keyLinks[0].domain}</span>
-                      <span className="newsMiniTitle">
-                        {dash.summary24h.keyLinks[0].title ?? dash.summary24h.keyLinks[0].url}
-                      </span>
+                      <span className="newsMiniTitle">{dash.summary24h.keyLinks[0].title ?? dash.summary24h.keyLinks[0].url}</span>
                     </>
                   ) : (
                     <span className="muted">No links found.</span>
@@ -477,7 +529,6 @@ export default function App() {
         </main>
       ) : null}
 
-      {/* keep this div in DOM, but CSS will ensure it’s transparent and not overlaying */}
       <div className="bottomSafe" />
     </div>
   );
