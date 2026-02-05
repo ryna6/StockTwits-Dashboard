@@ -27,7 +27,7 @@ function clamp(n: number, lo: number, hi: number) {
   return Math.max(lo, Math.min(hi, n));
 }
 
-function labelText(label: "Bull" | "Bear" | "Neutral") {
+function labelText(label: "bull" | "bear" | "neutral") {
   switch (label) {
     case "bull":
       return "Bullish";
