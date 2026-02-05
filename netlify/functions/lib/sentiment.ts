@@ -32,7 +32,7 @@ function tokenize(raw: string): string[] {
 
 export function modelSentiment(body: string | null | undefined): { score: number; label: "bull" | "neutral" | "bear" } {
   const text = (body ?? "").trim();
-  if (!text) return { score: 0, label: "Neutral" };
+  if (!text) return { score: 0, label: "neutral" };
 
   const toks = tokenize(text);
   if (toks.length === 0) return { score: 0, label: "neutral" };
@@ -63,4 +63,3 @@ export function modelSentiment(body: string | null | undefined): { score: number
   const label = score > 0.15 ? "bull" : score < -0.15 ? "bear" : "neutral";
   return { score, label };
 }
-
