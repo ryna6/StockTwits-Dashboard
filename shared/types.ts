@@ -1,8 +1,13 @@
+export type WhitelistUser = {
+  username: string; // StockTwits username (exact match)
+  name?: string;    // Optional real name / display label
+};
+
 export type TickerConfig = {
-  symbol: string;          // "RCAT"
-  displayName: string;     // "Red Cat Holdings"
-  logoUrl?: string;        // optional
-  whitelistUsers: string[]; // StockTwits usernames
+  symbol: string;           // "RCAT"
+  displayName: string;      // "Red Cat Holdings"
+  logoUrl?: string;         // optional
+  whitelistUsers: WhitelistUser[]; // username + optional display name
   manualEvents?: {
     label: string;
     dateISO: string; // YYYY-MM-DD
@@ -18,6 +23,7 @@ export type MessageLite = {
   user: {
     id: number;
     username: string;
+    displayName?: string; // <-- optional "real name" for whitelisted users
     followers: number;
     joinDate?: string;
     official?: boolean;
@@ -103,4 +109,3 @@ export type StatsResponse = {
   hasWatchers: boolean;
   hasPrice: boolean;
 };
-
