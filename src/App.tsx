@@ -286,7 +286,6 @@ export default function App() {
           <div className="card full">
             <Card
               title="Advanced Stats"
-              subtitle="Daily series + price overlay (if FINNHUB_API_KEY is set)"
               collapsed={collapsed.charts}
               onToggle={() => setCollapsed((c) => ({ ...c, charts: !c.charts }))}
               overview={<div className="muted">Charts are intentionally limited to keep iOS PWA fast.</div>}
