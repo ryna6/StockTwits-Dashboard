@@ -83,18 +83,6 @@ export default async (req: Request, _context: Context) => {
   try {
     if (req.method !== "POST") return new Response(null, { status: 405 });
 
-    // If ADMIN_TOKEN is set in Netlify env, require it for backfills (prevents random visitors from triggering it).
-    const adminToken = process.env.ADMIN_TOKEN;
-    if (adminToken) {
-      const provided = req.headers.get("x-admin-token") || "";
-      if (provided !== adminToken) {
-        return new Response(JSON.stringify({ ok: false, error: "unauthorized" }), {
-          status: 401,
-          headers: { "content-type": "application/json" }
-        });
-      }
-    }
-
     const body = await req.json().catch(() => ({}));
     const symbol = requireSymbol(body?.symbol);
     const days = Math.max(1, Math.min(90, Number(body?.days ?? 30)));
@@ -141,70 +129,53 @@ export default async (req: Request, _context: Context) => {
         stored.push(toLite(symbol, m, dupCount, displayName));
       }
 
-      // next page older
-      pageMax = oldestId > 0 ? oldestId - 1 : undefined;
+      if (!oldestId) break;
+      pageMax = oldestId - 1;
       pages += 1;
-
-      if (!resp.cursor?.more) break;
     }
 
-    // Dedupe by id within this run
-    const byId = new Map<number, MessageLite>();
-    for (const m of stored) byId.set(m.id, m);
-
-    const all = [...byId.values()].sort((a, b) => a.id - b.id);
-
-    // Load state + merge into per-day blobs
-    const state = (await getJSON<any>(kState(symbol))) ?? {};
-    const todayISO = toUTCDateISO(new Date());
-
-    // group by day
-    const byDay = new Map<string, MessageLite[]>();
-    for (const m of all) {
-      const d = toUTCDateISO(new Date(m.createdAt));
-      if (!byDay.has(d)) byDay.set(d, []);
-      byDay.get(d)!.push(m);
+    // write to day blobs
+    const buckets = new Map<string, MessageLite[]>();
+    for (const m of stored) {
+      const day = toUTCDateISO(new Date(m.createdAt));
+      if (!buckets.has(day)) buckets.set(day, []);
+      buckets.get(day)!.push(m);
     }
 
-    // write day blobs + aggregate
-    for (const [d, msgs] of byDay.entries()) {
-      const existing = ((await getJSON<MessageLite[]>(kMsgs(symbol, d))) ?? []) as MessageLite[];
-      const existingById = new Map<number, MessageLite>();
-      for (const em of existing) existingById.set(em.id, em);
-      for (const nm of msgs) existingById.set(nm.id, nm);
+    const newMessages: MessageLite[] = [];
+    for (const [day, bucket] of buckets.entries()) {
+      const key = kMsgs(symbol, day);
+      const existing = (await getJSON<MessageLite[]>(key)) ?? [];
+      const ids = new Set(existing.map((x) => x.id));
+      const filtered = bucket.filter((x) => !ids.has(x.id));
+      if (filtered.length === 0) continue;
 
-      const merged = [...existingById.values()].sort((a, b) => a.id - b.id);
-      await setJSON(kMsgs(symbol, d), merged);
-
-      await updateSeries(symbol, d, merged);
+      const merged = [...existing, ...filtered].sort((a, b) => b.id - a.id).slice(0, 2500);
+      await setJSON(key, merged);
+      newMessages.push(...filtered);
     }
 
-    // update state watchers snapshot (best effort)
-    const watchers = extractWatchersFromMessages(all as any);
-    state.lastWatchers = watchers ?? state.lastWatchers ?? null;
+    const watchers = extractWatchersFromMessages(symbol, stored) ?? null;
+    await updateSeries(symbol, newMessages, watchers);
 
-    // do NOT change lastSeenId on backfill (sync owns that), but update sync time
-    state.lastSyncAt = new Date().toISOString();
-    state.lastBackfillAt = new Date().toISOString();
-    state.lastBackfillDays = days;
+    const stateKey = kState(symbol);
+    const prev = (await getJSON<any>(stateKey)) ?? {};
+    const newestId = stored.length > 0 ? Math.max(...stored.map((m) => m.id)) : prev.lastSeenId ?? null;
 
-    await setJSON(kState(symbol), state);
+    await setJSON(stateKey, {
+      symbol,
+      lastSeenId: newestId,
+      lastSyncAt: new Date().toISOString(),
+      lastWatchers: watchers ?? prev.lastWatchers ?? null
+    });
 
-    return new Response(
-      JSON.stringify({
-        ok: true,
-        symbol,
-        days,
-        pages,
-        stored: all.length,
-        wroteDays: [...byDay.keys()].length,
-        lastDay: todayISO
-      }),
-      { status: 200, headers: { "content-type": "application/json" } }
-    );
-  } catch (e: any) {
-    return new Response(JSON.stringify({ ok: false, error: String(e?.message ?? e) }), {
-      status: 400,
+    return new Response(JSON.stringify({ ok: true, symbol, days, stored: newMessages.length }), {
+      status: 200,
+      headers: { "content-type": "application/json" }
+    });
+  } catch {
+    return new Response(JSON.stringify({ ok: false }), {
+      status: 200,
       headers: { "content-type": "application/json" }
     });
   }
