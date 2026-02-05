@@ -1,1 +1,17 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
+
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/:splat"
+  status = 200
+
+# Runs every 5 minutes (UTC). Keep the work inside short and bounded.
+[functions."scheduled-sync"]
+  schedule = "*/5 * * * *"
 
