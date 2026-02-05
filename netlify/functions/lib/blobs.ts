@@ -1,6 +1,8 @@
 import { getStore } from "@netlify/blobs";
 
-const STORE_NAME = "stcd-v1";
+// Bump this to reset all stored data if your blobs contain old schema.
+const STORE_NAME = "stcd-v2";
+
 export const store = getStore(STORE_NAME);
 
 export async function getJSON<T>(key: string): Promise<T | null> {
@@ -10,8 +12,6 @@ export async function getJSON<T>(key: string): Promise<T | null> {
 
 export async function setJSON(key: string, value: unknown, opts?: Record<string, unknown>) {
   const body = JSON.stringify(value);
-  // @netlify/blobs supports { metadata, onlyIfNew, onlyIfMatch } on set().
-  // We keep metadata minimal; it's still treated as JSON via get({type:"json"}).
   return await store.set(key, body, {
     metadata: { contentType: "application/json" },
     ...(opts ?? {})
@@ -46,4 +46,3 @@ export function kHash(hash: string) {
 export function kLock(symbol: string) {
   return `lock/${symbol.toUpperCase()}.json`;
 }
-
