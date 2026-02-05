@@ -60,7 +60,7 @@ export function modelSentiment(body: string | null | undefined): { score: number
 
   // normalize to [-1..1] with soft clipping
   const score = Math.max(-1, Math.min(1, s / 6));
-  const label = score > 0.15 ? "bull" : score < -0.15 ? "bear" : "Neutral";
+  const label = score > 0.15 ? "bull" : score < -0.15 ? "bear" : "neutral";
   return { score, label };
 }
 
