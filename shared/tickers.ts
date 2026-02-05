@@ -27,7 +27,7 @@ export const TICKERS: TickerConfig[] = [
   },
   {
     symbol: "FIG",
-    displayName: "FIG (verify symbol)",
+    displayName: "FIG",
     logoUrl: "https://logos.stocktwits-cdn.com/FIG.png",
     whitelistUsers: []
   }
