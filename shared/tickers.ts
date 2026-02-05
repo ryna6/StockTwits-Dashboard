@@ -6,7 +6,7 @@ export const TICKERS: TickerConfig[] = [
     displayName: "Red Cat Holdings",
     logoUrl: "https://logos.stocktwits-cdn.com/RCAT.png",
     whitelistUsers: [ 
-      { username: "Duckworks", name: "Jeffrey Thompson" }
+      { username: "Duckworks", name: "Jeffrey Thompson (CEO)" }
     ]
   },
   {
