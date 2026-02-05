@@ -1,6 +1,6 @@
 {
   "name": "StockTwits Dashboard",
-  "short_name": "ST Dashboard",
+  "short_name": "StockTwitsDB",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
