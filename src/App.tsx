@@ -255,11 +255,29 @@ export default function App() {
     <div className="app">
       <div className="topSafe" />
 
-      <header className="header">
+      {/* ✅ Force title row + content row layout here */}
+      <header
+        className="header"
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "stretch"
+        }}
+      >
         <div className="brandTitle">StockTwits Dashboard</div>
 
-        <div className="headerRow">
-          <div className="brand">
+        <div
+          className="headerRow"
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "flex-start",
+            gap: 14,
+            flexWrap: "wrap"
+          }}
+        >
+          {/* LEFT: logo + symbol/name + last sync/watchers */}
+          <div className="brand" style={{ minWidth: 260 }}>
             <div className="brandSubRow">
               {selectedTicker?.logoUrl ? (
                 <img
@@ -283,7 +301,18 @@ export default function App() {
             </div>
           </div>
 
-          <div className="controls">
+          {/* RIGHT: dropdown + refresh */}
+          <div
+            className="controls"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "flex-end",
+              gap: 10,
+              flexWrap: "wrap",
+              marginLeft: "auto"
+            }}
+          >
             <TickerPicker value={symbol} options={tickers} onChange={setSymbol} />
             <button className="refreshBtn" onClick={refreshNow} disabled={syncing || !symbol}>
               {syncing ? "Syncing…" : "Refresh"}
