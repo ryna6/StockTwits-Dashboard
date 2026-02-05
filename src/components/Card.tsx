@@ -1,32 +1,68 @@
-import React from "react";
+import React, { useEffect } from "react";
 
 export default function Card(props: {
   title: string;
   subtitle?: string;
   right?: React.ReactNode;
+  overview: React.ReactNode;
   collapsed: boolean;
   onToggle: () => void;
-  overview: React.ReactNode;
-  children: React.ReactNode;
+  children?: React.ReactNode;
 }) {
-  return (
-    <div className="card">
-      <button className="cardHeader" onClick={props.onToggle}>
-        <div className="cardHeaderLeft">
-          <div className="cardTitle">{props.title}</div>
-          {props.subtitle ? <div className="cardSubtitle">{props.subtitle}</div> : null}
-        </div>
-        <div className="cardHeaderRight">
-          {props.right}
-          <span className="chev">{props.collapsed ? "▾" : "▴"}</span>
-        </div>
-      </button>
+  const isOpen = !props.collapsed;
 
-      <div className="cardBody">
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") props.onToggle();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [isOpen, props]);
+
+  return (
+    <>
+      {/* Base card always stays compact (no in-place expanding) */}
+      <section className="card">
+        <div className="cardHead" onClick={props.onToggle} role="button" tabIndex={0}>
+          <div className="cardHeadLeft">
+            <div className="cardTitleRow">
+              <div className="cardTitle">{props.title}</div>
+              {props.right ? <div className="cardRight">{props.right}</div> : null}
+            </div>
+            {props.subtitle ? <div className="cardSubtitle">{props.subtitle}</div> : null}
+          </div>
+
+          <button className="cardOpenBtn" onClick={(e) => { e.stopPropagation(); props.onToggle(); }}>
+            Open
+          </button>
+        </div>
+
         <div className="cardOverview">{props.overview}</div>
-        {!props.collapsed ? <div className="cardExpanded">{props.children}</div> : null}
-      </div>
-    </div>
+      </section>
+
+      {/* Modal popup when expanded */}
+      {isOpen ? (
+        <div className="modalBackdrop" onMouseDown={props.onToggle}>
+          <div className="modal" role="dialog" aria-modal="true" onMouseDown={(e) => e.stopPropagation()}>
+            <div className="modalHeader">
+              <div className="modalHeaderLeft">
+                <div className="modalTitleRow">
+                  <div className="modalTitle">{props.title}</div>
+                  {props.right ? <div className="modalRight">{props.right}</div> : null}
+                </div>
+                {props.subtitle ? <div className="modalSubtitle">{props.subtitle}</div> : null}
+              </div>
+
+              <button className="modalCloseBtn" onClick={props.onToggle} aria-label="Close">
+                ✕
+              </button>
+            </div>
+
+            <div className="modalBody">{props.children}</div>
+          </div>
+        </div>
+      ) : null}
+    </>
   );
 }
-
