@@ -25,7 +25,7 @@ export type MessageLite = {
     official?: boolean;
   };
   stSentimentBasic?: "Bullish" | "Bearish" | null;
-  modelSentiment: { score: number; label: "Bullish" | "Neutral" | "Bearish" };
+  modelSentiment: { score: number; label: "bull" | "neutral" | "bear" };
   likes: number;
   replies: number;
   symbolsTagged: string[];
@@ -41,7 +41,7 @@ export type DashboardResponse = {
 
   sentiment24h: {
     score: number;
-    label: "Bullish" | "Neutral" | "Bearish";
+    label: "bull" | "neutral" | "bear";
     sampleSize: number;
     vsPrevDay?: number | null;
   };
