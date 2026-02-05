@@ -30,7 +30,7 @@ function tokenize(raw: string): string[] {
     .filter(Boolean);
 }
 
-export function modelSentiment(body: string | null | undefined): { score: number; label: "bull" | "Neutral" | "bear" } {
+export function modelSentiment(body: string | null | undefined): { score: number; label: "bull" | "neutral" | "bear" } {
   const text = (body ?? "").trim();
   if (!text) return { score: 0, label: "neutral" };
 
@@ -60,7 +60,7 @@ export function modelSentiment(body: string | null | undefined): { score: number
 
   // normalize to [-1..1] with soft clipping
   const score = Math.max(-1, Math.min(1, s / 6));
-  const label = score > 0.15 ? "bull" : score < -0.15 ? "bear" : "neutral";
+  const label = score > 0.15 ? "bull" : score < -0.15 ? "bear" : "Neutral";
   return { score, label };
 }
 
