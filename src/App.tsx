@@ -392,7 +392,6 @@ export default function App() {
             overview={
               <div className="overviewStack">
                 <div className="summaryOverview">
-                  <div className="overviewMain">{dash.summary24h.tldr}</div>
                   <p>
                     <span className="summaryLabel">Retail tone:</span> {labelText(dash.sentiment24h.label)} ({sentNowIdx})
                   </p>
