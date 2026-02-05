@@ -10,12 +10,7 @@ import { build24hSummary } from "./lib/summarize";
 function safeMsg(x: any): MessageLite | null {
   if (!x) return null;
 
-  const createdAt =
-    typeof x.createdAt === "string"
-      ? x.createdAt
-      : typeof x.created_at === "string"
-        ? x.created_at
-        : "";
+  const createdAt = typeof x.createdAt === "string" ? x.createdAt : (typeof x.created_at === "string" ? x.created_at : "");
   if (!createdAt) return null;
 
   const user = x.user ?? {};
@@ -40,10 +35,7 @@ function safeMsg(x: any): MessageLite | null {
     stSentimentBasic: x.stSentimentBasic ?? null,
     modelSentiment: {
       score: Number(modelSent.score ?? 0),
-      label:
-        modelSent.label === "bull" || modelSent.label === "bear" || modelSent.label === "neutral"
-          ? modelSent.label
-          : "neutral"
+      label: modelSent.label === "bull" || modelSent.label === "bear" || modelSent.label === "neutral" ? modelSent.label : "neutral"
     },
     likes: Number(x.likes ?? 0),
     replies: Number(x.replies ?? 0),
@@ -73,21 +65,16 @@ function asArrayMessages(v: any): MessageLite[] {
   return out;
 }
 
-function comparePopular(a: MessageLite, b: MessageLite) {
-  // User request: likes -> replies -> followers (followers much lower weight)
-  const al = a.likes ?? 0;
-  const bl = b.likes ?? 0;
-  if (bl !== al) return bl - al;
+function scorePopular(m: MessageLite) {
+  return (m.likes ?? 0) + 2 * (m.replies ?? 0) + Math.min(50, Math.floor((m.user.followers ?? 0) / 200));
+}
 
-  const ar = a.replies ?? 0;
-  const br = b.replies ?? 0;
-  if (br !== ar) return br - ar;
-
-  const af = a.user.followers ?? 0;
-  const bf = b.user.followers ?? 0;
-  if (bf !== af) return bf - af;
-
-  return (b.id ?? 0) - (a.id ?? 0);
+function domainOf(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return "unknown";
+  }
 }
 
 export default async (req: Request, _context: Context) => {
@@ -109,15 +96,18 @@ export default async (req: Request, _context: Context) => {
       const key = (m.user.username ?? "").toLowerCase();
       const name = wlName.get(key);
       if (!name) return m;
-      if (m.user.displayName) return m;
-      return { ...m, user: { ...m.user, displayName: name } };
+      if (m.user.displayName === name) return m;
+      return { ...m, user: { ...m.user, displayName: m.user.displayName ?? name } };
     };
 
     const cutoff = hoursAgoDate(24);
     const today = toUTCDateISO(new Date());
     const yesterday = toUTCDateISO(addDays(new Date(), -1));
 
-    const [tRaw, yRaw] = await Promise.all([getJSON<any>(kMsgs(symbol, today)), getJSON<any>(kMsgs(symbol, yesterday))]);
+    const [tRaw, yRaw] = await Promise.all([
+      getJSON<any>(kMsgs(symbol, today)),
+      getJSON<any>(kMsgs(symbol, yesterday))
+    ]);
 
     const tMsgs = asArrayMessages(tRaw);
     const yMsgs = asArrayMessages(yRaw);
@@ -135,41 +125,41 @@ export default async (req: Request, _context: Context) => {
     const sentimentLabel = sentimentScore > 0.15 ? "bull" : sentimentScore < -0.15 ? "bear" : "neutral";
 
     const series = await loadSeries(symbol);
-
-    // previous day mean sentiment from stored daily series
     const prev = series.days?.[yesterday];
-    const prevMean = prev && prev.sentimentCountClean > 0 ? prev.sentimentSumClean / prev.sentimentCountClean : null;
+    const prevMean =
+      prev && prev.sentimentCountClean > 0 ? prev.sentimentSumClean / prev.sentimentCountClean : null;
     const vsPrevDay = prevMean === null ? null : sentimentScore - prevMean;
 
-    // buzz baseline (average clean volume over last 20 stored days)
     const sortedDates = Object.keys(series.days ?? {}).sort();
     const last20 = sortedDates.slice(-20);
     const baseline =
       last20.length > 0
         ? last20.reduce((acc, d) => acc + (series.days[d]?.volumeClean ?? 0), 0) / last20.length
         : null;
+
     const buzzMultiple = baseline && baseline > 0 ? clean.length / baseline : null;
 
-    const popular = [...clean].sort(comparePopular).slice(0, 15);
+    const popular = [...clean].sort((a, b) => scorePopular(b) - scorePopular(a)).slice(0, 15);
 
     const highlights = clean
       .filter((m) => m.user.official || wlSet.has((m.user.username ?? "").toLowerCase()))
       .sort((a, b) => b.id - a.id)
       .slice(0, 25);
 
+    const links: { url: string; title?: string }[] = [];
+    for (const m of clean) for (const l of m.links) links.push({ url: l.url, title: l.title });
+
     const summary = build24hSummary({
       symbol,
       displayName: cfg.displayName,
       cleanMessages: clean,
       popular,
+      links,
       sentimentScore24h: sentimentScore,
       vsPrevDay
     });
 
     const state = await getJSON<any>(kState(symbol));
-
-    // clean posts in last 24h for expanded Summary view (bounded)
-    const recentPosts24h = [...clean].sort((a, b) => b.id - a.id).slice(0, 200);
 
     const out: DashboardResponse = {
       symbol,
@@ -188,13 +178,14 @@ export default async (req: Request, _context: Context) => {
         buzzMultiple: buzzMultiple === null ? null : Number(buzzMultiple.toFixed(2))
       },
       summary24h: summary,
-      recentPosts24h,
       popularPosts24h: popular,
       highlightedPosts: highlights,
       preview: {
         topPost: popular[0] ?? null,
         topHighlight: highlights[0] ?? null,
-        topLink: summary.keyLinks?.[0] ?? null
+        topLink: summary.keyLinks?.[0]
+          ? { ...summary.keyLinks[0], domain: domainOf(summary.keyLinks[0].url) }
+          : null
       }
     };
 
