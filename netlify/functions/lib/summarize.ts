@@ -9,12 +9,12 @@ function domainOf(url: string): string {
 }
 
 const THEME_RULES: { name: string; re: RegExp }[] = [
-  { name: "Contracts / Awards / Orders", re: /\b(contract|award|order|orders|deal|customer|procurement)\b/i },
-  { name: "Earnings / Financials", re: /\b(earnings|guidance|revenue|eps|profit|margin)\b/i },
-  { name: "Dilution / Offering", re: /\b(offering|dilution|dilutive|s-3|atm|warrant)\b/i },
-  { name: "Regulatory / Approval", re: /\b(approval|approved|faa|certification|regulator)\b/i },
-  { name: "Partnership / Strategic", re: /\b(partnership|partner|strategic|collaboration)\b/i },
-  { name: "Short / Squeeze", re: /\b(short|borrow|squeeze|cover)\b/i }
+  { name: "Contracts", re: /\b(contract|contracts|award|order|orders|deal|SSR|fund|funds|suas|customer|army|procurement)\b/i },
+  { name: "Earnings", re: /\b(earnings|guidance|revenue|eps|profit|margin)\b/i },
+  { name: "Offering", re: /\b(offering|dilution|dilutive|s-3|atm|warrant)\b/i },
+  { name: "Regulation", re: /\b(approval|approved|faa|certification|regulator)\b/i },
+  { name: "Partnership", re: /\b(partnership|partner|strategic|collaboration|umac|pltr|pdyn)\b/i },
+  { name: "Shorts", re: /\b(short|borrow|squeeze|cover)\b/i }
 ];
 
 export function build24hSummary(args: {
