@@ -188,9 +188,6 @@ export default function App() {
               </div>
             }
           >
-            <div className="muted">
-              Expanded sentiment deltas can be computed from the daily series in Advanced Stats (kept centralized).
-            </div>
           </Card>
 
           <Card
@@ -207,9 +204,6 @@ export default function App() {
               </div>
             }
           >
-            <div className="muted">
-              Buzz multiple = 24h clean volume / average clean daily volume over the last ~20 stored days.
-            </div>
           </Card>
 
           <Card
@@ -236,7 +230,7 @@ export default function App() {
           </Card>
 
           <Card
-            title="News / Links"
+            title="News"
             collapsed={collapsed.news}
             onToggle={() => setCollapsed((c) => ({ ...c, news: !c.news }))}
             overview={
