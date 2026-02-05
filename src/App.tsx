@@ -188,6 +188,9 @@ export default function App() {
               </div>
             }
           >
+            <div className="muted">
+              Expanded sentiment deltas can be computed from the daily series in Advanced Stats (kept centralized).
+            </div>
           </Card>
 
           <Card
@@ -204,6 +207,9 @@ export default function App() {
               </div>
             }
           >
+            <div className="muted">
+              Buzz multiple = 24h clean volume / average clean daily volume over the last ~20 stored days.
+            </div>
           </Card>
 
           <Card
@@ -286,6 +292,7 @@ export default function App() {
           <div className="card full">
             <Card
               title="Advanced Stats"
+              subtitle="Daily series + price overlay (if FINNHUB_API_KEY is set)"
               collapsed={collapsed.charts}
               onToggle={() => setCollapsed((c) => ({ ...c, charts: !c.charts }))}
               overview={<div className="muted">Charts are intentionally limited to keep iOS PWA fast.</div>}
