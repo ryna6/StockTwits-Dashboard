@@ -71,7 +71,7 @@ export default function PostsList(props: { posts: PostLike[]; emptyText: string 
                   <span className="mono">@{username}</span>
                 )}
 
-                {p.user?.official ? <span className="badge">official</span> : null}
+                {p.user?.official ? <span className="badge">Official</span> : null}
                 {isSpam ? <span className="badge warn">spam</span> : null}
               </div>
 
