@@ -1,12 +1,12 @@
 export type WhitelistUser = {
   username: string; // StockTwits username (exact match)
-  name?: string; // Optional real name / display label
+  name?: string;    // Optional real name / display label
 };
 
 export type TickerConfig = {
-  symbol: string; // "RCAT"
-  displayName: string; // "Red Cat Holdings"
-  logoUrl?: string; // optional
+  symbol: string;           // "RCAT"
+  displayName: string;      // "Red Cat Holdings"
+  logoUrl?: string;         // optional
   whitelistUsers: WhitelistUser[]; // username + optional display name
   manualEvents?: {
     label: string;
@@ -23,7 +23,7 @@ export type MessageLite = {
   user: {
     id: number;
     username: string;
-    displayName?: string; // optional "real name" for whitelisted users
+    displayName?: string; // <-- optional "real name" for whitelisted users
     followers: number;
     joinDate?: string;
     official?: boolean;
@@ -55,24 +55,11 @@ export type MessageLite = {
   };
 };
 
-export type SummaryLink = {
-  url: string;
-  title?: string;
-  domain: string;
-  count: number;
-  lastSharedAt?: string; // ISO timestamp of the most recent message that shared this link
-};
-
-export type SummaryEvidencePost = Pick<
-  MessageLite,
-  "id" | "createdAt" | "body" | "user" | "likes" | "replies" | "links"
->;
-
 export type DashboardResponse = {
   symbol: string;
   displayName: string;
 
-  lastSyncAt?: string | null;
+  lastSyncAt?: string;
   watchers?: number | null;
 
   sentiment24h: {
@@ -91,12 +78,9 @@ export type DashboardResponse = {
   summary24h: {
     tldr: string;
     themes: { name: string; count: number }[];
-    evidencePosts: SummaryEvidencePost[];
-    keyLinks: SummaryLink[];
+    evidencePosts: Pick<MessageLite, "id" | "createdAt" | "body" | "user" | "likes" | "replies" | "links">[];
+    keyLinks: { url: string; title?: string; domain: string; count: number }[];
   };
-
-  // Clean, spam-filtered messages in the last 24h (sorted most recent first, bounded)
-  recentPosts24h: MessageLite[];
 
   popularPosts24h: MessageLite[];
   highlightedPosts: MessageLite[];
@@ -105,7 +89,7 @@ export type DashboardResponse = {
   preview: {
     topPost?: MessageLite | null;
     topHighlight?: MessageLite | null;
-    topLink?: SummaryLink | null;
+    topLink?: { url: string; title?: string; domain: string; count: number } | null;
   };
 };
 
