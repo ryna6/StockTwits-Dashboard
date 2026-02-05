@@ -407,10 +407,6 @@ export default function App() {
               </div>
             }
           >
-            <div className="section">
-              <div className="sectionTitle">Summary</div>
-              <div className="tldr">{dash.summary24h.tldr}</div>
-            </div>
 
             <div className="section">
               <div className="sectionTitle">Retail tone</div>
