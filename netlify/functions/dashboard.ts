@@ -2,9 +2,8 @@ import type { Handler } from "@netlify/functions";
 import type { DashboardResponse, MessageLite, NewsItem } from "../../shared/types";
 import { TICKER_MAP } from "../../shared/tickers";
 import { getJSON, setJSON, kState, kMsgs, kNews } from "./lib/blobs";
-import { utcDayKey, nowISO, parseISO, isWithinLastHours } from "./lib/time";
-import { summarize24h } from "./lib/summarize";
-import { spamThreshold } from "./lib/spam";
+import { nowISO, parseISO, toUTCDateISO, addDays, hoursAgoDate } from "./lib/time";
+import { build24hSummary } from "./lib/summarize";
 import { requireSymbol, envFloat, envInt } from "./lib/validate";
 import { fetchSymbolNews } from "./lib/stocktwits";
 
@@ -23,11 +22,34 @@ function domainOf(url: string): string {
   }
 }
 
+function isWithinLastHours(createdAtISO: string, hours: number): boolean {
+  const cutoff = hoursAgoDate(hours).getTime();
+  return parseISO(createdAtISO).getTime() >= cutoff;
+}
+
+function normalizeWhitelist(cfg: any): Set<string> {
+  const raw = cfg?.whitelistUsers ?? [];
+  const out = new Set<string>();
+  for (const u of raw) {
+    if (typeof u === "string") out.add(u.toLowerCase());
+    else if (u && typeof u.username === "string") out.add(u.username.toLowerCase());
+  }
+  return out;
+}
+
+function themeNamesFromSummary(summaryBuilt: any): string[] {
+  const raw = summaryBuilt?.themes ?? [];
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((t: any) => (typeof t === "string" ? t : t?.name))
+    .filter((x: any) => typeof x === "string" && x.trim().length > 0);
+}
+
 export const handler: Handler = async (event) => {
   try {
     const symbol = requireSymbol(event.queryStringParameters?.symbol);
 
-    const cfg = TICKER_MAP[symbol.toUpperCase()];
+    const cfg = (TICKER_MAP as any)[symbol.toUpperCase()];
     const displayName = cfg?.displayName ?? symbol.toUpperCase();
 
     const state = (await getJSON<SymbolState>(kState(symbol))) ?? {
@@ -36,13 +58,15 @@ export const handler: Handler = async (event) => {
       lastWatchers: null
     };
 
-    const today = utcDayKey(new Date());
-    const yesterday = utcDayKey(new Date(Date.now() - 24 * 60 * 60 * 1000));
+    const todayDate = new Date();
+    const today = toUTCDateISO(todayDate);
+    const yesterday = toUTCDateISO(addDays(todayDate, -1));
 
     const todayMsgs = (await getJSON<MessageLite[]>(kMsgs(symbol, today))) ?? [];
     const ydayMsgs = (await getJSON<MessageLite[]>(kMsgs(symbol, yesterday))) ?? [];
 
-    const TH = envFloat("SPAM_THRESHOLD", spamThreshold());
+    // Default spam threshold if not provided via env
+    const TH = envFloat("SPAM_THRESHOLD", 0.75);
     const cleanToday = todayMsgs.filter((m) => (m?.spam?.score ?? 0) < TH);
     const cleanYday = ydayMsgs.filter((m) => (m?.spam?.score ?? 0) < TH);
 
@@ -54,17 +78,12 @@ export const handler: Handler = async (event) => {
     const sScores = last24h.map((m) => m.modelSentiment?.score ?? 0);
     const sMean = sScores.length ? sScores.reduce((a, b) => a + b, 0) / sScores.length : 0;
 
-    const sLabel =
-      sMean > 0.08 ? "bull" : sMean < -0.08 ? "bear" : "neutral";
+    const sLabel = sMean > 0.08 ? "bull" : sMean < -0.08 ? "bear" : "neutral";
 
     // prev day sentiment mean (yesterday clean)
     const prevScores = cleanYday.map((m) => m.modelSentiment?.score ?? 0);
     const prevMean = prevScores.length ? prevScores.reduce((a, b) => a + b, 0) / prevScores.length : null;
-
-    const sentimentVsPrevDay =
-      prevMean != null && prevScores.length
-        ? (sMean - prevMean) // delta in [-2..2] units
-        : null;
+    const sentimentVsPrevDay = prevMean != null && prevScores.length ? sMean - prevMean : null;
 
     // Volume 24h (clean vs total)
     const volumeClean24h = last24h.length;
@@ -73,13 +92,35 @@ export const handler: Handler = async (event) => {
     const prevVolumeClean = cleanYday.length || null;
     const volVsPrevDay = prevVolumeClean ? (volumeClean24h - prevVolumeClean) / prevVolumeClean : null;
 
-    // Build summary
-    const summary24h = summarize24h(symbol, last24h);
+    // Popular posts sorting: likes -> replies -> followers (tiny tie-break)
+    const popularPosts24h = [...last24h]
+      .sort((a, b) => {
+        const la = (a as any).likes ?? 0;
+        const lb = (b as any).likes ?? 0;
+        if (lb !== la) return lb - la;
+        const ra = (a as any).replies ?? 0;
+        const rb = (b as any).replies ?? 0;
+        if (rb !== ra) return rb - ra;
+        const fa = (a as any).user?.followers ?? 0;
+        const fb = (b as any).user?.followers ?? 0;
+        return fb - fa;
+      })
+      .slice(0, 50);
+
+    // Highlighted posts: official OR whitelisted usernames
+    const whitelist = normalizeWhitelist(cfg);
+    const highlightedPosts = last24h
+      .filter((m) => !!(m as any).user?.official || whitelist.has(((m as any).user?.username ?? "").toLowerCase()))
+      .sort((a, b) => parseISO(b.createdAt).getTime() - parseISO(a.createdAt).getTime())
+      .slice(0, 50);
+
+    // posts24h payload cap
+    const posts24h = last24h.slice(0, envInt("POSTS_24H_CAP", 200));
 
     // keyLinks aggregation (from user shared links in clean posts) — NOT used for News card anymore
     const linkCount = new Map<string, { count: number; title?: string; lastAt: string }>();
     for (const m of last24h) {
-      for (const l of m.links ?? []) {
+      for (const l of (m as any).links ?? []) {
         if (!l?.url) continue;
         const cur = linkCount.get(l.url);
         if (!cur) {
@@ -102,30 +143,28 @@ export const handler: Handler = async (event) => {
       .sort((a, b) => b.count - a.count || parseISO(b.lastSharedAt).getTime() - parseISO(a.lastSharedAt).getTime())
       .slice(0, 20);
 
-    // Popular posts sorting: likes -> replies -> followers (tiny tie-break)
-    const popularPosts24h = [...last24h]
-      .sort((a, b) => {
-        const la = a.likes ?? 0;
-        const lb = b.likes ?? 0;
-        if (lb !== la) return lb - la;
-        const ra = a.replies ?? 0;
-        const rb = b.replies ?? 0;
-        if (rb !== ra) return rb - ra;
-        const fa = a.user?.followers ?? 0;
-        const fb = b.user?.followers ?? 0;
-        return fb - fa;
-      })
-      .slice(0, 50);
+    // Build summary using existing summarize helper, but normalize output to match UI expectations
+    const flatLinks = last24h
+      .flatMap((m) => ((m as any).links ?? []).map((l: any) => ({ url: l.url, title: l.title })))
+      .filter((l) => !!l.url);
 
-    // Highlighted posts: official OR whitelisted usernames
-    const whitelist = new Set((cfg?.whitelistUsers ?? []).map((u) => u.toLowerCase()));
-    const highlightedPosts = last24h
-      .filter((m) => !!m.user?.official || whitelist.has(m.user?.username?.toLowerCase?.() ?? ""))
-      .sort((a, b) => parseISO(b.createdAt).getTime() - parseISO(a.createdAt).getTime())
-      .slice(0, 50);
+    const summaryBuilt = build24hSummary({
+      symbol: symbol.toUpperCase(),
+      displayName,
+      cleanMessages: last24h,
+      popular: popularPosts24h,
+      links: flatLinks,
+      sentimentScore24h: sMean,
+      vsPrevDay: sentimentVsPrevDay
+    });
 
-    // posts24h payload cap
-    const posts24h = last24h.slice(0, envInt("POSTS_24H_CAP", 200));
+    const summary24h = {
+      tldr: (summaryBuilt as any)?.tldr ?? "",
+      themes: themeNamesFromSummary(summaryBuilt),
+      // Keep these as full MessageLite objects so PostsList never crashes on missing fields
+      evidencePosts: popularPosts24h.slice(0, 3),
+      keyLinks
+    };
 
     // StockTwits News tab (cached in blobs)
     const NEWS_TTL_SECONDS = envInt("NEWS_TTL_SECONDS", 600);
@@ -141,7 +180,7 @@ export const handler: Handler = async (event) => {
         news = fresh as NewsItem[];
         await setJSON(kNews(symbol), { fetchedAt: nowISO(), items: news });
       } catch {
-        // If fetch fails, keep cached news if available.
+        // keep cached on failure
       }
     }
 
@@ -156,20 +195,16 @@ export const handler: Handler = async (event) => {
         label: sLabel as any,
         score: sMean,
         sampleSize: sScores.length,
-        // We present "vsPrevDay" as a fraction-like value in UI for consistency; keep as delta for now.
         vsPrevDay: sentimentVsPrevDay
-      },
+      } as any,
 
       volume24h: {
         clean: volumeClean24h,
         total: volumeTotal24h,
         vsPrevDay: volVsPrevDay
-      },
+      } as any,
 
-      summary24h: {
-        ...summary24h,
-        keyLinks
-      },
+      summary24h: summary24h as any,
 
       news,
 
@@ -182,7 +217,7 @@ export const handler: Handler = async (event) => {
         topHighlight: highlightedPosts[0],
         topLink: keyLinks[0]
       }
-    };
+    } as any;
 
     return {
       statusCode: 200,
