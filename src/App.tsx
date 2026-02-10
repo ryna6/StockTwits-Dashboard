@@ -44,14 +44,6 @@ function sentimentToIndex(score: number) {
   return clamp(Math.round((s + 1) * 50), 0, 100);
 }
 
-function safeDomain(url: string): string {
-  try {
-    return new URL(url).hostname.replace(/^www\./, "");
-  } catch {
-    return "source";
-  }
-}
-
 type Change = {
   from: number;
   to: number;
@@ -238,11 +230,7 @@ export default function App() {
   const sent1w = useMemo(() => computeChange(sentDailyIdx, 5), [sentDailyIdx]);
   const sent1m = useMemo(() => computeChange(sentDailyIdx, 21), [sentDailyIdx]);
 
-  const sentNowIdx = sentDailyIdx.length
-    ? sentDailyIdx[sentDailyIdx.length - 1]
-    : dash
-      ? sentimentToIndex(dash.sentiment24h.score)
-      : 50;
+  const sentNowIdx = sentDailyIdx.length ? sentDailyIdx[sentDailyIdx.length - 1] : dash ? sentimentToIndex(dash.sentiment24h.score) : 50;
 
   // volume daily series (clean)
   const volDaily = useMemo(() => {
@@ -261,20 +249,7 @@ export default function App() {
   const summarySentAt = (dash as any)?.posts24h?.[0]?.createdAt ?? dash?.summary24h?.evidencePosts?.[0]?.createdAt ?? null;
   const popularSentAt = dash?.preview?.topPost?.createdAt ?? null;
   const highlightsSentAt = dash?.preview?.topHighlight?.createdAt ?? null;
-
-  // StockTwits News tab items returned by backend (null-safe, and doesn't require shared/types.ts updates)
-  const newsItems = ((((dash as any)?.news ?? []) as any[]) ?? []).filter((n) => !!n?.url);
-  const topNews = newsItems[0] ?? null;
-  const newsPublishedAt = topNews?.publishedAt ?? null;
-  const newsLinks = useMemo(() => {
-    return (newsItems ?? []).map((n: any) => ({
-      url: n.url,
-      title: n.title,
-      domain: (n.source ?? safeDomain(n.url)) as string,
-      lastSharedAt: n.publishedAt
-    }));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dash]);
+  const newsSharedAt = (dash?.summary24h?.keyLinks?.[0] as any)?.lastSharedAt ?? null;
 
   return (
     <div className="app">
@@ -460,9 +435,12 @@ export default function App() {
               </div>
             }
           >
+
             <div className="section">
               <div className="sectionTitle">Retail tone</div>
-              <div className="tldr">{labelText(dash.sentiment24h.label)} ({sentNowIdx}) · 24h sentiment (spam-filtered)</div>
+              <div className="tldr">
+                {labelText(dash.sentiment24h.label)} ({sentNowIdx}) · 24h sentiment (spam-filtered)
+              </div>
             </div>
 
             <div className="section">
@@ -495,20 +473,20 @@ export default function App() {
             overview={
               <div className="overviewStack">
                 <div className="overviewMain">
-                  {topNews ? (
+                  {dash.summary24h.keyLinks?.[0] ? (
                     <>
-                      <span className="newsMiniSource">{String(topNews.source ?? safeDomain(topNews.url)).toLowerCase()}</span>
-                      <span className="newsMiniTitle">{topNews.title ?? topNews.url}</span>
+                      <span className="newsMiniSource">{dash.summary24h.keyLinks[0].domain}</span>
+                      <span className="newsMiniTitle">{dash.summary24h.keyLinks[0].title ?? dash.summary24h.keyLinks[0].url}</span>
                     </>
                   ) : (
-                    <span className="muted">No news found.</span>
+                    <span className="muted">No links found.</span>
                   )}
                 </div>
-                {newsPublishedAt ? <div className="overviewStamp">published {timeAgo(newsPublishedAt)}</div> : null}
+                {newsSharedAt ? <div className="overviewStamp">shared {timeAgo(newsSharedAt)}</div> : null}
               </div>
             }
           >
-            <NewsList links={newsLinks as any} />
+            <NewsList links={dash.summary24h.keyLinks as any} />
           </Card>
 
           {/* POPULAR */}
@@ -521,7 +499,8 @@ export default function App() {
                 <div className="overviewMain">
                   {dash.preview.topPost ? (
                     <>
-                      <span className="mono">@{dash.preview.topPost.user.username}</span>: {dash.preview.topPost.body.slice(0, 160)}
+                      <span className="mono">@{dash.preview.topPost.user.username}</span>:{" "}
+                      {dash.preview.topPost.body.slice(0, 160)}
                       {dash.preview.topPost.body.length > 160 ? "…" : ""}
                     </>
                   ) : (
@@ -545,7 +524,8 @@ export default function App() {
                 <div className="overviewMain">
                   {dash.preview.topHighlight ? (
                     <>
-                      <span className="mono">@{dash.preview.topHighlight.user.username}</span>: {dash.preview.topHighlight.body.slice(0, 160)}
+                      <span className="mono">@{dash.preview.topHighlight.user.username}</span>:{" "}
+                      {dash.preview.topHighlight.body.slice(0, 160)}
                       {dash.preview.topHighlight.body.length > 160 ? "…" : ""}
                     </>
                   ) : (
