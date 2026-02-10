@@ -1,89 +1,122 @@
-export type WhitelistUser = {
-  username: string;
-  name?: string;
+export type SentLabel = "bull" | "bear" | "neutral";
+
+export type ModelSentiment = {
+  score: number; // [-1..1]
+  label: SentLabel;
 };
 
-export type TickerConfig = {
-  symbol: string;
-  displayName: string;
-  logoUrl?: string;
-  whitelistUsers: WhitelistUser[];
-  manualEvents?: { label: string; dateISO: string }[];
+export type SpamInfo = {
+  score: number; // [0..1]
+  reasons: string[];
 };
 
 export type MessageLite = {
   id: number;
-  createdAt: string;
+  createdAt: string; // ISO
   body: string;
-  hasMedia: boolean;
+
   user: {
     id: number;
     username: string;
-    displayName?: string;
-    followers: number;
-    joinDate?: string;
+    name?: string;
+    avatarUrl?: string;
     official?: boolean;
+    followers?: number;
   };
-  stSentimentBasic?: "Bullish" | "Bearish" | null;
-  modelSentiment: { score: number; label: "bull" | "neutral" | "bear" };
-  likes: number;
-  replies: number;
-  symbolsTagged: string[];
-  links: { url: string; title?: string; source?: string }[];
-  spam: { score: number; reasons: string[]; normalizedHash?: string };
+
+  symbols?: string[];
+
+  likes?: number;
+  replies?: number;
+
+  isReply?: boolean;
+  inReplyTo?: {
+    id: number;
+    username?: string;
+    body?: string;
+  };
+
+  links?: Array<{ url: string; title?: string; source?: string }>;
+
+  spam: SpamInfo;
+  modelSentiment: ModelSentiment;
+};
+
+export type KeyLink = {
+  url: string;
+  domain: string;
+  count: number;
+  lastSharedAt: string; // ISO of most recent message that shared this link
+  title?: string;
+};
+
+export type NewsItem = {
+  title: string;
+  url: string;
+  source?: string;
+  publishedAt?: string;
+  category?: string;
+};
+
+export type Summary24h = {
+  tldr: string;
+  themes: string[];
+  evidencePosts: MessageLite[];
+  keyLinks: KeyLink[];
+};
+
+export type SentimentSummary = {
+  label: SentLabel;
+  score: number; // [-1..1]
+  sampleSize: number;
+  vsPrevDay: number | null; // fraction change e.g. 0.12 = +12%
+};
+
+export type VolumeSummary = {
+  clean: number;
+  total: number;
+  vsPrevDay: number | null; // fraction change
+};
+
+export type Preview = {
+  topPost?: MessageLite;
+  topHighlight?: MessageLite;
+  topLink?: KeyLink;
 };
 
 export type DashboardResponse = {
   symbol: string;
   displayName: string;
-  lastSyncAt?: string;
-  watchers?: number | null;
 
-  sentiment24h: {
-    score: number;
-    label: "bull" | "neutral" | "bear";
-    sampleSize: number;
-    vsPrevDay?: number | null;
-  };
+  lastSyncAt: string | null; // ISO
+  watchers: number | null;
 
-  volume24h: {
-    clean: number;
-    total: number;
-    buzzMultiple?: number | null;
-  };
+  sentiment24h: SentimentSummary;
+  volume24h: VolumeSummary;
 
-  summary24h: {
-    tldr: string;
-    themes: { name: string; count: number }[];
-    evidencePosts: Pick<MessageLite, "id" | "createdAt" | "body" | "user" | "likes" | "replies" | "links">[];
-    keyLinks: { url: string; title?: string; domain: string; count: number; lastSharedAt?: string }[];
-  };
+  summary24h: Summary24h;
+
+  // StockTwits "News" tab items (NOT user-shared links)
+  news: NewsItem[];
 
   posts24h: MessageLite[];
-
   popularPosts24h: MessageLite[];
   highlightedPosts: MessageLite[];
 
-  preview: {
-    topPost?: MessageLite | null;
-    topHighlight?: MessageLite | null;
-    topLink?: { url: string; title?: string; domain: string; count: number } | null;
-  };
+  preview: Preview;
 };
 
-export type DailySeriesPoint = {
-  date: string;
+export type DailyPoint = {
+  date: string; // YYYY-MM-DD
   volumeClean: number;
   volumeTotal: number;
-  sentimentMean: number | null;
-  watchers: number | null;
-  close: number | null;
+  sentimentMean: number; // [-1..1]
+  watchers?: number | null;
+  priceClose?: number | null;
 };
 
 export type StatsResponse = {
   symbol: string;
-  rangeDays: number;
-  points: DailySeriesPoint[];
-  hasWatchers: boolean;
-  hasPrice: boolean;
+  displayName: string;
+  series: DailyPoint[];
 };
