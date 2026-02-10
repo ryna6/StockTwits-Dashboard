@@ -44,11 +44,11 @@ function sentimentToIndex(score: number) {
   return clamp(Math.round((s + 1) * 50), 0, 100);
 }
 
-function safeDomain(url: string): string | undefined {
+function safeDomain(url: string): string {
   try {
     return new URL(url).hostname.replace(/^www\./, "");
   } catch {
-    return undefined;
+    return "source";
   }
 }
 
@@ -66,137 +66,131 @@ function computeChange(series: number[], stepsBack: number): Change | null {
   if (i < 0) return null;
   const from = series[i];
   const diff = to - from;
-  const pct = from !== 0 ? diff / from : null;
+  const pct = from === 0 ? null : (diff / from) * 100;
   return { from, to, diff, pct };
 }
 
-function pctText(pct: number | null) {
-  if (pct == null || !Number.isFinite(pct)) return "—";
-  const v = Math.round(pct * 1000) / 10;
-  const sign = v > 0 ? "+" : "";
-  return `${sign}${v}%`;
+function deltaClass(pct: number | null): string {
+  if (pct == null || !Number.isFinite(pct)) return "delta neutral";
+  const abs = Math.abs(pct);
+  const strong = abs >= 10 ? " strong" : "";
+  if (pct > 0) return "delta up" + strong;
+  if (pct < 0) return "delta down" + strong;
+  return "delta neutral";
 }
 
-function lastNonNull<T>(arr: T[], get: (x: T) => any): number[] {
+function fmtPct(pct: number | null): string {
+  if (pct == null || !Number.isFinite(pct)) return "—";
+  const sign = pct > 0 ? "+" : "";
+  return `${sign}${pct.toFixed(1)}%`;
+}
+
+function lastNonNull<T>(arr: T[], pick: (x: any) => number | null | undefined) {
   const out: number[] = [];
-  for (const x of arr) {
-    const v = get(x);
+  for (const p of arr) {
+    const v = pick(p);
     if (v == null) continue;
-    if (!Number.isFinite(v)) continue;
-    out.push(v);
+    if (!Number.isFinite(Number(v))) continue;
+    out.push(Number(v));
   }
   return out;
 }
 
 export default function App() {
   const [tickers, setTickers] = useState<TickerOpt[]>([]);
-  const [symbol, setSymbol] = useState<string>("RCAT");
+  const [symbol, setSymbol] = useState<string>("");
 
   const [dash, setDash] = useState<DashboardResponse | null>(null);
   const [stats, setStats] = useState<StatsResponse | null>(null);
+  const [range, setRange] = useState<30 | 90 | 365>(90);
 
-  const [loading, setLoading] = useState<boolean>(false);
-  const [error, setError] = useState<string>("");
+  const [loading, setLoading] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const lastSuccessfulLoadRef = useRef<number>(0);
-
-  // collapsed state for cards
   const [collapsed, setCollapsed] = useState<Record<CardKey, boolean>>({
-    sentiment: false,
-    volume: false,
-    summary: false,
+    sentiment: true,
+    volume: true,
+    summary: true,
     news: true,
     popular: true,
     highlights: true,
     charts: true
   });
 
-  // chart range
-  const [range, setRange] = useState<"1m" | "3m" | "12m">("3m");
+  const lastSuccessfulLoadRef = useRef<number>(0);
 
   const selectedTicker = useMemo(() => {
-    const s = symbol.toUpperCase();
-    const found = tickers.find((t) => t.symbol.toUpperCase() === s);
-    return found ?? { symbol: s, displayName: s };
-  }, [symbol, tickers]);
+    const s = symbol?.toUpperCase();
+    return tickers.find((t) => t.symbol.toUpperCase() === s) ?? null;
+  }, [tickers, symbol]);
 
-  const titleText = useMemo(() => {
-    if (selectedTicker?.displayName) return `${selectedTicker.symbol} — ${selectedTicker.displayName}`;
-    if (!dash) return symbol || "—";
-    return `${dash.symbol} — ${dash.displayName}`;
-  }, [dash, selectedTicker, symbol]);
-
-  const topThemesText = useMemo(() => {
-    const themes = (dash as any)?.summary24h?.themes ?? [];
-    if (!themes.length) return "—";
-    // supports both [{name,count}] and string[]
-    if (typeof themes[0] === "string") return themes.slice(0, 3).join(", ");
-    return themes.slice(0, 3).map((t: any) => t.name).join(", ");
-  }, [dash]);
-
-  const mostShared = useMemo(() => {
-    const k = (dash as any)?.summary24h?.keyLinks?.[0];
-    if (!k) return null;
-    return k.title ?? k.url ?? null;
-  }, [dash]);
-
-  // ----- Load config + data -----
-  async function loadConfig() {
-    try {
-      const cfg = await apiConfig();
-      const list = (cfg?.tickers ?? []).map((sym: string) => {
-        const up = sym.toUpperCase();
-        return { symbol: up, displayName: up } as TickerOpt;
-      });
-      if (list.length) setTickers(list);
-    } catch {
-      // non-fatal
-    }
-  }
-
-  async function loadAll(sym: string) {
+  async function loadAll(sym: string, opts?: { includeStats?: boolean }) {
     setLoading(true);
-    setError("");
+    setErrorMsg(null);
     try {
       const d = await apiDashboard(sym);
       setDash(d);
-      const s = await apiStats(sym);
-      setStats(s);
+
+      if (opts?.includeStats) {
+        const s = await apiStats(sym, range);
+        setStats(s);
+      }
+
       lastSuccessfulLoadRef.current = Date.now();
     } catch (e: any) {
-      setError(e?.message ?? String(e));
+      setDash(null);
+      setStats(null);
+      setErrorMsg(String(e?.message ?? e));
     } finally {
       setLoading(false);
     }
   }
 
   async function refreshNow() {
-    setLoading(true);
-    setError("");
+    if (!symbol) return;
+    setSyncing(true);
+    setErrorMsg(null);
     try {
       await apiSync(symbol);
-      await loadAll(symbol);
+      await loadAll(symbol, { includeStats: true });
     } catch (e: any) {
-      setError(e?.message ?? String(e));
+      setErrorMsg(String(e?.message ?? e));
     } finally {
-      setLoading(false);
+      setSyncing(false);
     }
   }
 
+  // Load config once and pick default ticker
   useEffect(() => {
-    loadConfig().catch(() => {});
-    loadAll(symbol).catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    (async () => {
+      const cfg = await apiConfig();
+      const opts: TickerOpt[] = (cfg.tickers ?? []).map((t: any) => ({
+        symbol: t.symbol,
+        displayName: t.displayName,
+        logoUrl: t.logoUrl
+      }));
+      setTickers(opts);
+      if (!opts.length) {
+        setErrorMsg("No tickers returned by /api/config");
+        return;
+      }
+      setSymbol((prev) => (prev && opts.some((o) => o.symbol === prev) ? prev : opts[0].symbol));
+    })().catch((e) => setErrorMsg(String(e?.message ?? e)));
   }, []);
 
+  // Reload whenever symbol/range changes
   useEffect(() => {
-    loadAll(symbol).catch(() => {});
+    if (!symbol) return;
+    loadAll(symbol, { includeStats: true }).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [symbol]);
+  }, [symbol, range]);
 
+  // Auto-refresh only when stale, only after successful load
   useEffect(() => {
     const onVis = () => {
       if (document.visibilityState !== "visible") return;
+      if (!symbol) return;
       if (lastSuccessfulLoadRef.current === 0) return;
       const age = Date.now() - lastSuccessfulLoadRef.current;
       if (age > 8 * 60 * 1000) refreshNow().catch(() => {});
@@ -208,16 +202,37 @@ export default function App() {
       document.removeEventListener("visibilitychange", onVis);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [symbol]);
 
-  // ----- Stats-derived series for deltas -----
-  const points = (stats as any)?.series ?? [];
+  const headerLine = useMemo(() => {
+    if (!dash) return selectedTicker ? `${selectedTicker.symbol} — ${selectedTicker.displayName}` : symbol || "—";
+    return `${dash.symbol} — ${dash.displayName}`;
+  }, [dash, selectedTicker, symbol]);
 
-  const sentDaily = useMemo(() => {
-    return lastNonNull(points as any[], (p: any) => p.sentimentMean);
+  const topThemesText = useMemo(() => {
+    const items = dash?.summary24h?.themes ?? [];
+    if (!items.length) return "—";
+    return items
+      .slice(0, 3)
+      .map((t) => t.name)
+      .filter(Boolean)
+      .join(", ");
+  }, [dash]);
+
+  const mostShared = useMemo(() => {
+    const l = dash?.summary24h?.keyLinks?.[0];
+    if (!l) return null;
+    return `${l.domain} — ${l.title ?? l.url}`;
+  }, [dash]);
+
+  // ---- derive daily series deltas from stats (preferred baseline) ----
+  const points = stats?.points ?? [];
+
+  // sentiment daily series (0..100 index)
+  const sentDailyIdx = useMemo(() => {
+    const raw = lastNonNull(points as any[], (p: any) => p.sentimentMean);
+    return raw.map((s) => sentimentToIndex(Number(s)));
   }, [points]);
-
-  const sentDailyIdx = useMemo(() => sentDaily.map((s) => sentimentToIndex(s)), [sentDaily]);
 
   const sent1d = useMemo(() => computeChange(sentDailyIdx, 1), [sentDailyIdx]);
   const sent1w = useMemo(() => computeChange(sentDailyIdx, 5), [sentDailyIdx]);
@@ -226,9 +241,10 @@ export default function App() {
   const sentNowIdx = sentDailyIdx.length
     ? sentDailyIdx[sentDailyIdx.length - 1]
     : dash
-    ? sentimentToIndex(dash.sentiment24h.score)
-    : 50;
+      ? sentimentToIndex(dash.sentiment24h.score)
+      : 50;
 
+  // volume daily series (clean)
   const volDaily = useMemo(() => {
     return lastNonNull(points as any[], (p: any) => p.volumeClean);
   }, [points]);
@@ -246,16 +262,16 @@ export default function App() {
   const popularSentAt = dash?.preview?.topPost?.createdAt ?? null;
   const highlightsSentAt = dash?.preview?.topHighlight?.createdAt ?? null;
 
-  // StockTwits "News" tab items (server-provided). Keep this null-safe to avoid first-render crashes.
-  const newsItems = (((dash as any)?.news ?? []) as any[]) ?? [];
+  // StockTwits News tab items returned by backend (null-safe, and doesn't require shared/types.ts updates)
+  const newsItems = ((((dash as any)?.news ?? []) as any[]) ?? []).filter((n) => !!n?.url);
   const topNews = newsItems[0] ?? null;
   const newsPublishedAt = topNews?.publishedAt ?? null;
   const newsLinks = useMemo(() => {
     return (newsItems ?? []).map((n: any) => ({
-      url: n?.url,
-      title: n?.title,
-      domain: (n?.source ?? safeDomain(n?.url) ?? "stocktwits") as string,
-      lastSharedAt: n?.publishedAt
+      url: n.url,
+      title: n.title,
+      domain: (n.source ?? safeDomain(n.url)) as string,
+      lastSharedAt: n.publishedAt
     }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dash]);
@@ -264,6 +280,7 @@ export default function App() {
     <div className="app">
       <div className="topSafe" />
 
+      {/* ✅ Force title row + content row layout here */}
       <header
         className="header"
         style={{
@@ -274,37 +291,69 @@ export default function App() {
       >
         <div className="brandTitle">StockTwits Dashboard</div>
 
-        <div className="headerRow">
-          <div className="headerLeft">
-            <div className="headerTicker">
-              <div className="headerSymbol">{selectedTicker.symbol}</div>
-              <div className="headerName">{selectedTicker.displayName}</div>
+        <div
+          className="headerRow"
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "flex-start",
+            gap: 14,
+            flexWrap: "wrap"
+          }}
+        >
+          {/* LEFT: logo + symbol/name + last sync/watchers */}
+          <div className="brand" style={{ minWidth: 260 }}>
+            <div className="brandSubRow">
+              {selectedTicker?.logoUrl ? (
+                <img
+                  className="brandLogo"
+                  src={selectedTicker.logoUrl}
+                  alt=""
+                  loading="lazy"
+                  referrerPolicy="no-referrer"
+                  onError={(e) => {
+                    (e.currentTarget as HTMLImageElement).style.display = "none";
+                  }}
+                />
+              ) : null}
+              <div className="brandSub">{headerLine}</div>
             </div>
 
-            <div className="headerMeta">
+            <div className="brandMeta">
               <span>Last sync: {dash?.lastSyncAt ? timeAgo(dash.lastSyncAt) : "—"}</span>
               <span className="dot">•</span>
               <span>Watchers: {dash?.watchers != null ? fmtInt(dash.watchers) : "—"}</span>
             </div>
           </div>
 
-          <div className="headerRight">
-            <TickerPicker
-              tickers={tickers.length ? tickers : [{ symbol: "RCAT", displayName: "RCAT" }]}
-              value={symbol}
-              onChange={setSymbol}
-            />
-            <button className="btn refreshBtn" onClick={refreshNow} disabled={loading}>
-              {loading ? "Refreshing…" : "Refresh"}
+          {/* RIGHT: dropdown + refresh */}
+          <div
+            className="controls"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "flex-end",
+              gap: 10,
+              flexWrap: "wrap",
+              marginLeft: "auto"
+            }}
+          >
+            <TickerPicker value={symbol} options={tickers} onChange={setSymbol} />
+            <button className="refreshBtn" onClick={refreshNow} disabled={syncing || !symbol}>
+              {syncing ? "Syncing…" : "Refresh"}
             </button>
           </div>
         </div>
-
-        <div className="headerSubRow">
-          <div className="headerTitle">{titleText}</div>
-          {error ? <div className="error">{error}</div> : null}
-        </div>
       </header>
+
+      {errorMsg ? (
+        <div className="errorBanner">
+          <div className="errorTitle">API Error</div>
+          <div className="errorBody">{errorMsg}</div>
+        </div>
+      ) : null}
+
+      {loading && !dash ? <div className="muted pad">Loading…</div> : null}
 
       {dash ? (
         <main className="grid">
@@ -314,60 +363,78 @@ export default function App() {
             collapsed={collapsed.sentiment}
             onToggle={() => setCollapsed((c) => ({ ...c, sentiment: !c.sentiment }))}
             overview={
-              <div className="overviewStack">
-                <div className="overviewMain">
-                  <div className={"sentLabel " + dash.sentiment24h.label}>{toneText}</div>
-                  <div className="sentNumber">{sentNowIdx}</div>
-                  <div className="sentOutOf">/100</div>
-                </div>
-                <div className="overviewStamp">vs prev day: {pctText(dash.sentiment24h.vsPrevDay as any)}</div>
+              <div className="sentOverview">
+                <div className={"sentLabel " + dash.sentiment24h.label}>{toneText}</div>
+                <div className="sentNumber">{sentNowIdx}</div>
+                <div className={deltaClass(sent1d?.pct ?? null)}>{fmtPct(sent1d?.pct ?? null)}</div>
               </div>
             }
           >
             <div className="deltaGrid">
               <div className="deltaRow">
-                <div className="deltaLabel">1D</div>
-                <div className="deltaValue">{sent1d ? pctText(sent1d.pct) : "—"}</div>
+                <div className="deltaTf">1D</div>
+                <div className="deltaVal">{sent1d ? `${sent1d.to} (${sent1d.diff >= 0 ? "+" : ""}${sent1d.diff})` : "—"}</div>
+                <div className={deltaClass(sent1d?.pct ?? null)}>{fmtPct(sent1d?.pct ?? null)}</div>
               </div>
+
               <div className="deltaRow">
-                <div className="deltaLabel">1W</div>
-                <div className="deltaValue">{sent1w ? pctText(sent1w.pct) : "—"}</div>
+                <div className="deltaTf">1W</div>
+                <div className="deltaVal">{sent1w ? `${sent1w.to} (${sent1w.diff >= 0 ? "+" : ""}${sent1w.diff})` : "—"}</div>
+                <div className={deltaClass(sent1w?.pct ?? null)}>{fmtPct(sent1w?.pct ?? null)}</div>
               </div>
+
               <div className="deltaRow">
-                <div className="deltaLabel">1M</div>
-                <div className="deltaValue">{sent1m ? pctText(sent1m.pct) : "—"}</div>
+                <div className="deltaTf">1M</div>
+                <div className="deltaVal">{sent1m ? `${sent1m.to} (${sent1m.diff >= 0 ? "+" : ""}${sent1m.diff})` : "—"}</div>
+                <div className={deltaClass(sent1m?.pct ?? null)}>{fmtPct(sent1m?.pct ?? null)}</div>
               </div>
+            </div>
+
+            <div className="muted" style={{ marginTop: 10 }}>
+              Sentiment is shown as a 0–100 index (0 bearish, 50 neutral, 100 bullish), computed from daily aggregates.
             </div>
           </Card>
 
-          {/* VOLUME */}
+          {/* MESSAGE VOLUME */}
           <Card
             title={TITLES.volume}
             collapsed={collapsed.volume}
             onToggle={() => setCollapsed((c) => ({ ...c, volume: !c.volume }))}
             overview={
-              <div className="overviewStack">
-                <div className="overviewMain">
-                  <div className="bigNum">{fmtInt(volNow)}</div>
-                  <div className="muted">clean</div>
-                </div>
-                <div className="overviewStamp">vs prev day: {pctText(dash.volume24h.vsPrevDay as any)}</div>
+              <div className="statRow">
+                <div className="statBig">{fmtInt(volNow)}</div>
+                <div className={deltaClass(vol1d?.pct ?? null)}>{fmtPct(vol1d?.pct ?? null)}</div>
               </div>
             }
           >
             <div className="deltaGrid">
               <div className="deltaRow">
-                <div className="deltaLabel">1D</div>
-                <div className="deltaValue">{vol1d ? pctText(vol1d.pct) : "—"}</div>
+                <div className="deltaTf">1D</div>
+                <div className="deltaVal">
+                  {vol1d ? `${fmtInt(vol1d.to)} (${vol1d.diff >= 0 ? "+" : ""}${fmtInt(vol1d.diff)})` : "—"}
+                </div>
+                <div className={deltaClass(vol1d?.pct ?? null)}>{fmtPct(vol1d?.pct ?? null)}</div>
               </div>
+
               <div className="deltaRow">
-                <div className="deltaLabel">1W</div>
-                <div className="deltaValue">{vol1w ? pctText(vol1w.pct) : "—"}</div>
+                <div className="deltaTf">1W</div>
+                <div className="deltaVal">
+                  {vol1w ? `${fmtInt(vol1w.to)} (${vol1w.diff >= 0 ? "+" : ""}${fmtInt(vol1w.diff)})` : "—"}
+                </div>
+                <div className={deltaClass(vol1w?.pct ?? null)}>{fmtPct(vol1w?.pct ?? null)}</div>
               </div>
+
               <div className="deltaRow">
-                <div className="deltaLabel">1M</div>
-                <div className="deltaValue">{vol1m ? pctText(vol1m.pct) : "—"}</div>
+                <div className="deltaTf">1M</div>
+                <div className="deltaVal">
+                  {vol1m ? `${fmtInt(vol1m.to)} (${vol1m.diff >= 0 ? "+" : ""}${fmtInt(vol1m.diff)})` : "—"}
+                </div>
+                <div className={deltaClass(vol1m?.pct ?? null)}>{fmtPct(vol1m?.pct ?? null)}</div>
               </div>
+            </div>
+
+            <div className="muted" style={{ marginTop: 10 }}>
+              Volume changes are based on stored daily clean message counts (best baseline for % change).
             </div>
           </Card>
 
@@ -378,18 +445,16 @@ export default function App() {
             onToggle={() => setCollapsed((c) => ({ ...c, summary: !c.summary }))}
             overview={
               <div className="overviewStack">
-                <div className="overviewMain">
-                  <div className="summaryOverview">
-                    <p>
-                      <span className="summaryLabel">Retail tone:</span> {labelText(dash.sentiment24h.label)} ({sentNowIdx})
-                    </p>
-                    <p>
-                      <span className="summaryLabel">Top themes:</span> {topThemesText}
-                    </p>
-                    <p>
-                      <span className="summaryLabel">Most shared link:</span> {mostShared ?? "—"}
-                    </p>
-                  </div>
+                <div className="summaryOverview">
+                  <p>
+                    <span className="summaryLabel">Retail tone:</span> {labelText(dash.sentiment24h.label)} ({sentNowIdx})
+                  </p>
+                  <p>
+                    <span className="summaryLabel">Top themes:</span> {topThemesText}
+                  </p>
+                  <p>
+                    <span className="summaryLabel">Most shared link:</span> {mostShared ?? "—"}
+                  </p>
                 </div>
                 {summarySentAt ? <div className="overviewStamp">sent {timeAgo(summarySentAt)}</div> : null}
               </div>
@@ -397,9 +462,7 @@ export default function App() {
           >
             <div className="section">
               <div className="sectionTitle">Retail tone</div>
-              <div className="tldr">
-                {labelText(dash.sentiment24h.label)} ({sentNowIdx}) · 24h sentiment (spam-filtered)
-              </div>
+              <div className="tldr">{labelText(dash.sentiment24h.label)} ({sentNowIdx}) · 24h sentiment (spam-filtered)</div>
             </div>
 
             <div className="section">
@@ -410,9 +473,9 @@ export default function App() {
             <div className="section">
               <div className="sectionTitle">Top themes</div>
               <div className="chips">
-                {((dash as any).summary24h.themes ?? []).map((t: any) => (
-                  <span key={t.name ?? t} className="chip">
-                    {typeof t === "string" ? t : `${t.name} · ${t.count}`}
+                {dash.summary24h.themes.map((t) => (
+                  <span key={t.name} className="chip">
+                    {t.name} · {t.count}
                   </span>
                 ))}
               </div>
@@ -424,7 +487,7 @@ export default function App() {
             </div>
           </Card>
 
-          {/* NEWS (StockTwits News tab only) */}
+          {/* NEWS */}
           <Card
             title={TITLES.news}
             collapsed={collapsed.news}
@@ -434,7 +497,7 @@ export default function App() {
                 <div className="overviewMain">
                   {topNews ? (
                     <>
-                      <span className="newsMiniSource">{String(topNews.source ?? "stocktwits").toLowerCase()}</span>
+                      <span className="newsMiniSource">{String(topNews.source ?? safeDomain(topNews.url)).toLowerCase()}</span>
                       <span className="newsMiniTitle">{topNews.title ?? topNews.url}</span>
                     </>
                   ) : (
@@ -445,8 +508,7 @@ export default function App() {
               </div>
             }
           >
-            {/* Pass both shapes; NewsList will use whichever it supports */}
-            <NewsList {...({ symbol, news: newsItems, links: newsLinks } as any)} />
+            <NewsList links={newsLinks as any} />
           </Card>
 
           {/* POPULAR */}
@@ -459,8 +521,7 @@ export default function App() {
                 <div className="overviewMain">
                   {dash.preview.topPost ? (
                     <>
-                      <span className="mono">@{dash.preview.topPost.user.username}</span>:{" "}
-                      {dash.preview.topPost.body.slice(0, 160)}
+                      <span className="mono">@{dash.preview.topPost.user.username}</span>: {dash.preview.topPost.body.slice(0, 160)}
                       {dash.preview.topPost.body.length > 160 ? "…" : ""}
                     </>
                   ) : (
@@ -484,8 +545,7 @@ export default function App() {
                 <div className="overviewMain">
                   {dash.preview.topHighlight ? (
                     <>
-                      <span className="mono">@{dash.preview.topHighlight.user.username}</span>:{" "}
-                      {dash.preview.topHighlight.body.slice(0, 160)}
+                      <span className="mono">@{dash.preview.topHighlight.user.username}</span>: {dash.preview.topHighlight.body.slice(0, 160)}
                       {dash.preview.topHighlight.body.length > 160 ? "…" : ""}
                     </>
                   ) : (
