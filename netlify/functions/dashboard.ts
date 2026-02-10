@@ -1,237 +1,308 @@
-import type { Handler } from "@netlify/functions";
-import type { DashboardResponse, MessageLite, NewsItem } from "../../shared/types";
+import type { Context } from "@netlify/functions";
+import type { DashboardResponse, MessageLite } from "../../shared/types";
 import { TICKER_MAP } from "../../shared/tickers";
-import { getJSON, setJSON, kState, kMsgs, kNews } from "./lib/blobs";
-import { nowISO, parseISO, toUTCDateISO, addDays, hoursAgoDate } from "./lib/time";
+import { requireSymbol, envFloat } from "./lib/validate";
+import { getJSON, kMsgs, kState } from "./lib/blobs";
+import { hoursAgoDate, toUTCDateISO, addDays } from "./lib/time";
+import { loadSeries } from "./lib/aggregate";
 import { build24hSummary } from "./lib/summarize";
-import { requireSymbol, envFloat, envInt } from "./lib/validate";
-import { fetchSymbolNews } from "./lib/stocktwits";
 
-type SymbolState = {
-  lastSeenId: number | null;
-  lastSyncAt: string | null;
-  lastWatchers: number | null;
-};
+function safeMsg(x: any): MessageLite | null {
+  if (!x) return null;
+
+  const createdAt =
+    typeof x.createdAt === "string"
+      ? x.createdAt
+      : typeof x.created_at === "string"
+        ? x.created_at
+        : "";
+  if (!createdAt) return null;
+
+  const user = x.user ?? {};
+  const links = Array.isArray(x.links) ? x.links : [];
+
+  const modelSent = x.modelSentiment ?? {};
+  const spam = x.spam ?? {};
+
+  return {
+    id: Number(x.id ?? 0),
+    createdAt,
+    body: String(x.body ?? ""),
+    hasMedia: Boolean(x.hasMedia ?? false),
+    user: {
+      id: Number(user.id ?? 0),
+      username: String(user.username ?? "unknown"),
+      displayName: typeof user.displayName === "string" ? user.displayName : undefined,
+      followers: Number(user.followers ?? 0),
+      joinDate: typeof user.joinDate === "string" ? user.joinDate : undefined,
+      official: Boolean(user.official ?? false)
+    },
+    stSentimentBasic: x.stSentimentBasic ?? null,
+    modelSentiment: {
+      score: Number(modelSent.score ?? 0),
+      label:
+        modelSent.label === "bull" || modelSent.label === "bear" || modelSent.label === "neutral"
+          ? modelSent.label
+          : "neutral"
+    },
+    likes: Number(x.likes ?? 0),
+    replies: Number(x.replies ?? 0),
+    symbolsTagged: Array.isArray(x.symbolsTagged) ? x.symbolsTagged.map((s: any) => String(s).toUpperCase()) : [],
+    links: links
+      .map((l: any) => ({
+        url: String(l?.url ?? "").trim(),
+        title: typeof l?.title === "string" ? l.title : undefined,
+        source: typeof l?.source === "string" ? l.source : undefined
+      }))
+      .filter((l: any) => l.url),
+    spam: {
+      score: Number(spam.score ?? 0),
+      reasons: Array.isArray(spam.reasons) ? spam.reasons.map((r: any) => String(r)) : [],
+      normalizedHash: typeof spam.normalizedHash === "string" ? spam.normalizedHash : undefined
+    }
+  };
+}
+
+function asArrayMessages(v: any): MessageLite[] {
+  if (!Array.isArray(v)) return [];
+  const out: MessageLite[] = [];
+  for (const x of v) {
+    const m = safeMsg(x);
+    if (m) out.push(m);
+  }
+  return out;
+}
 
 function domainOf(url: string): string {
   try {
-    const u = new URL(url);
-    return u.hostname.replace(/^www\./, "");
+    return new URL(url).hostname.replace(/^www\./, "");
   } catch {
     return "unknown";
   }
 }
 
-function isWithinLastHours(createdAtISO: string, hours: number): boolean {
-  const cutoff = hoursAgoDate(hours).getTime();
-  return parseISO(createdAtISO).getTime() >= cutoff;
+/**
+ * Popular sorting request:
+ * likes -> replies -> followers (followers is a VERY small influence: tie-break only)
+ */
+function comparePopular(a: MessageLite, b: MessageLite) {
+  const al = a.likes ?? 0;
+  const bl = b.likes ?? 0;
+  if (bl !== al) return bl - al;
+
+  const ar = a.replies ?? 0;
+  const br = b.replies ?? 0;
+  if (br !== ar) return br - ar;
+
+  const af = a.user.followers ?? 0;
+  const bf = b.user.followers ?? 0;
+  if (bf !== af) return bf - af;
+
+  return (b.id ?? 0) - (a.id ?? 0);
 }
 
-function normalizeWhitelist(cfg: any): Set<string> {
-  const raw = cfg?.whitelistUsers ?? [];
-  const out = new Set<string>();
-  for (const u of raw) {
-    if (typeof u === "string") out.add(u.toLowerCase());
-    else if (u && typeof u.username === "string") out.add(u.username.toLowerCase());
-  }
-  return out;
-}
+/**
+ * Build key links from clean messages with:
+ * - count
+ * - domain
+ * - lastSharedAt (max createdAt over messages sharing it)
+ * - best title (first non-empty title encountered)
+ */
+function buildKeyLinks(clean: MessageLite[], maxLinks = 12) {
+  type LinkAgg = { url: string; title?: string; domain: string; count: number; lastSharedAt?: string };
 
-function themeNamesFromSummary(summaryBuilt: any): string[] {
-  const raw = summaryBuilt?.themes ?? [];
-  if (!Array.isArray(raw)) return [];
-  return raw
-    .map((t: any) => (typeof t === "string" ? t : t?.name))
-    .filter((x: any) => typeof x === "string" && x.trim().length > 0);
-}
+  const map = new Map<string, LinkAgg>();
 
-export const handler: Handler = async (event) => {
-  try {
-    const symbol = requireSymbol(event.queryStringParameters?.symbol);
+  for (const m of clean) {
+    if (!m.links || m.links.length === 0) continue;
 
-    const cfg = (TICKER_MAP as any)[symbol.toUpperCase()];
-    const displayName = cfg?.displayName ?? symbol.toUpperCase();
+    // avoid double-counting same URL twice in same message
+    const seen = new Set<string>();
 
-    const state = (await getJSON<SymbolState>(kState(symbol))) ?? {
-      lastSeenId: null,
-      lastSyncAt: null,
-      lastWatchers: null
-    };
+    for (const l of m.links) {
+      const url = String(l?.url ?? "").trim();
+      if (!url) continue;
+      if (seen.has(url)) continue;
+      seen.add(url);
 
-    const todayDate = new Date();
-    const today = toUTCDateISO(todayDate);
-    const yesterday = toUTCDateISO(addDays(todayDate, -1));
+      const existing = map.get(url);
+      const createdAt = m.createdAt;
 
-    const todayMsgs = (await getJSON<MessageLite[]>(kMsgs(symbol, today))) ?? [];
-    const ydayMsgs = (await getJSON<MessageLite[]>(kMsgs(symbol, yesterday))) ?? [];
+      if (!existing) {
+        map.set(url, {
+          url,
+          title: l.title,
+          domain: domainOf(url),
+          count: 1,
+          lastSharedAt: createdAt
+        });
+      } else {
+        existing.count += 1;
+        if (!existing.title && l.title) existing.title = l.title;
 
-    // Default spam threshold if not provided via env
-    const TH = envFloat("SPAM_THRESHOLD", 0.75);
-    const cleanToday = todayMsgs.filter((m) => (m?.spam?.score ?? 0) < TH);
-    const cleanYday = ydayMsgs.filter((m) => (m?.spam?.score ?? 0) < TH);
-
-    // Only last 24h from clean messages (can span two days)
-    const last24h = [...cleanToday, ...cleanYday].filter((m) => isWithinLastHours(m.createdAt, 24));
-    last24h.sort((a, b) => parseISO(b.createdAt).getTime() - parseISO(a.createdAt).getTime());
-
-    // Sentiment 24h
-    const sScores = last24h.map((m) => m.modelSentiment?.score ?? 0);
-    const sMean = sScores.length ? sScores.reduce((a, b) => a + b, 0) / sScores.length : 0;
-
-    const sLabel = sMean > 0.08 ? "bull" : sMean < -0.08 ? "bear" : "neutral";
-
-    // prev day sentiment mean (yesterday clean)
-    const prevScores = cleanYday.map((m) => m.modelSentiment?.score ?? 0);
-    const prevMean = prevScores.length ? prevScores.reduce((a, b) => a + b, 0) / prevScores.length : null;
-    const sentimentVsPrevDay = prevMean != null && prevScores.length ? sMean - prevMean : null;
-
-    // Volume 24h (clean vs total)
-    const volumeClean24h = last24h.length;
-    const volumeTotal24h = [...todayMsgs, ...ydayMsgs].filter((m) => isWithinLastHours(m.createdAt, 24)).length;
-
-    const prevVolumeClean = cleanYday.length || null;
-    const volVsPrevDay = prevVolumeClean ? (volumeClean24h - prevVolumeClean) / prevVolumeClean : null;
-
-    // Popular posts sorting: likes -> replies -> followers (tiny tie-break)
-    const popularPosts24h = [...last24h]
-      .sort((a, b) => {
-        const la = (a as any).likes ?? 0;
-        const lb = (b as any).likes ?? 0;
-        if (lb !== la) return lb - la;
-        const ra = (a as any).replies ?? 0;
-        const rb = (b as any).replies ?? 0;
-        if (rb !== ra) return rb - ra;
-        const fa = (a as any).user?.followers ?? 0;
-        const fb = (b as any).user?.followers ?? 0;
-        return fb - fa;
-      })
-      .slice(0, 50);
-
-    // Highlighted posts: official OR whitelisted usernames
-    const whitelist = normalizeWhitelist(cfg);
-    const highlightedPosts = last24h
-      .filter((m) => !!(m as any).user?.official || whitelist.has(((m as any).user?.username ?? "").toLowerCase()))
-      .sort((a, b) => parseISO(b.createdAt).getTime() - parseISO(a.createdAt).getTime())
-      .slice(0, 50);
-
-    // posts24h payload cap
-    const posts24h = last24h.slice(0, envInt("POSTS_24H_CAP", 200));
-
-    // keyLinks aggregation (from user shared links in clean posts) — NOT used for News card anymore
-    const linkCount = new Map<string, { count: number; title?: string; lastAt: string }>();
-    for (const m of last24h) {
-      for (const l of (m as any).links ?? []) {
-        if (!l?.url) continue;
-        const cur = linkCount.get(l.url);
-        if (!cur) {
-          linkCount.set(l.url, { count: 1, title: l.title, lastAt: m.createdAt });
+        if (!existing.lastSharedAt) {
+          existing.lastSharedAt = createdAt;
         } else {
-          cur.count += 1;
-          if (!cur.title && l.title) cur.title = l.title;
-          if (parseISO(m.createdAt).getTime() > parseISO(cur.lastAt).getTime()) cur.lastAt = m.createdAt;
+          const prev = new Date(existing.lastSharedAt).getTime();
+          const now = new Date(createdAt).getTime();
+          if (now > prev) existing.lastSharedAt = createdAt;
         }
       }
     }
-    const keyLinks = [...linkCount.entries()]
-      .map(([url, v]) => ({
-        url,
-        domain: domainOf(url),
-        count: v.count,
-        title: v.title,
-        lastSharedAt: v.lastAt
-      }))
-      .sort((a, b) => b.count - a.count || parseISO(b.lastSharedAt).getTime() - parseISO(a.lastSharedAt).getTime())
-      .slice(0, 20);
+  }
 
-    // Build summary using existing summarize helper, but normalize output to match UI expectations
-    const flatLinks = last24h
-      .flatMap((m) => ((m as any).links ?? []).map((l: any) => ({ url: l.url, title: l.title })))
-      .filter((l) => !!l.url);
+  return [...map.values()]
+    .sort((a, b) => {
+      if (b.count !== a.count) return b.count - a.count;
+      const bt = b.lastSharedAt ? new Date(b.lastSharedAt).getTime() : 0;
+      const at = a.lastSharedAt ? new Date(a.lastSharedAt).getTime() : 0;
+      return bt - at;
+    })
+    .slice(0, maxLinks);
+}
 
-    const summaryBuilt = build24hSummary({
-      symbol: symbol.toUpperCase(),
-      displayName,
-      cleanMessages: last24h,
-      popular: popularPosts24h,
-      links: flatLinks,
-      sentimentScore24h: sMean,
-      vsPrevDay: sentimentVsPrevDay
-    });
+export default async (req: Request, _context: Context) => {
+  try {
+    const url = new URL(req.url);
+    const symbol = requireSymbol(url.searchParams.get("symbol"));
+    const cfg = TICKER_MAP[symbol];
+    const spamThreshold = envFloat("SPAM_THRESHOLD", 0.75);
 
-    const summary24h = {
-      tldr: (summaryBuilt as any)?.tldr ?? "",
-      themes: themeNamesFromSummary(summaryBuilt),
-      // Keep these as full MessageLite objects so PostsList never crashes on missing fields
-      evidencePosts: popularPosts24h.slice(0, 3),
-      keyLinks
+    const wlSet = new Set((cfg.whitelistUsers ?? []).map((u: any) => String(u.username ?? u).toLowerCase()));
+    const wlName = new Map(
+      (cfg.whitelistUsers ?? [])
+        .map((u: any) => ({ username: String(u.username ?? u).toLowerCase(), name: u.name }))
+        .filter((u: any) => u.username && u.name)
+        .map((u: any) => [u.username, String(u.name)])
+    );
+
+    const enrich = (m: MessageLite): MessageLite => {
+      const key = (m.user.username ?? "").toLowerCase();
+      const name = wlName.get(key);
+      if (!name) return m;
+      if (m.user.displayName === name) return m;
+      return { ...m, user: { ...m.user, displayName: m.user.displayName ?? name } };
     };
 
-    // StockTwits News tab (cached in blobs)
-    const NEWS_TTL_SECONDS = envInt("NEWS_TTL_SECONDS", 600);
-    const cachedNews = (await getJSON<{ fetchedAt: string; items: NewsItem[] }>(kNews(symbol))) ?? null;
+    const cutoff = hoursAgoDate(24);
+    const today = toUTCDateISO(new Date());
+    const yesterday = toUTCDateISO(addDays(new Date(), -1));
 
-    let news: NewsItem[] = cachedNews?.items ?? [];
-    const cachedAt = cachedNews?.fetchedAt ? Date.parse(cachedNews.fetchedAt) : 0;
-    const isStale = !cachedAt || Date.now() - cachedAt > NEWS_TTL_SECONDS * 1000;
+    const [tRaw, yRaw] = await Promise.all([getJSON<any>(kMsgs(symbol, today)), getJSON<any>(kMsgs(symbol, yesterday))]);
 
-    if (isStale) {
-      try {
-        const fresh = await fetchSymbolNews(symbol, 20);
-        news = fresh as NewsItem[];
-        await setJSON(kNews(symbol), { fetchedAt: nowISO(), items: news });
-      } catch {
-        // keep cached on failure
-      }
-    }
+    const tMsgs = asArrayMessages(tRaw);
+    const yMsgs = asArrayMessages(yRaw);
+
+    // last 24h (from today + yesterday blobs), newest-first by id
+    const combined = [...tMsgs, ...yMsgs]
+      .filter((m) => new Date(m.createdAt).getTime() >= cutoff.getTime())
+      .sort((a, b) => b.id - a.id);
+
+    const total24h = combined.length;
+
+    const cleanRaw = combined.filter((m) => (m.spam?.score ?? 0) < spamThreshold);
+    const clean = cleanRaw.map(enrich);
+
+    // sentiment: mean model score
+    const sentimentScore =
+      clean.length > 0 ? clean.reduce((acc, m) => acc + (m.modelSentiment?.score ?? 0), 0) / clean.length : 0;
+
+    const sentimentLabel = sentimentScore > 0.15 ? "bull" : sentimentScore < -0.15 ? "bear" : "neutral";
+
+    // daily series
+    const series = await loadSeries(symbol);
+    const prev = series.days?.[yesterday];
+    const prevMean = prev && prev.sentimentCountClean > 0 ? prev.sentimentSumClean / prev.sentimentCountClean : null;
+    const vsPrevDay = prevMean === null ? null : sentimentScore - prevMean;
+
+    // buzz baseline
+    const sortedDates = Object.keys(series.days ?? {}).sort();
+    const last20 = sortedDates.slice(-20);
+    const baseline =
+      last20.length > 0 ? last20.reduce((acc, d) => acc + (series.days[d]?.volumeClean ?? 0), 0) / last20.length : null;
+
+    const buzzMultiple = baseline && baseline > 0 ? clean.length / baseline : null;
+
+    // Popular: likes -> replies -> followers (tiny), then id
+    const popular = [...clean].sort(comparePopular).slice(0, 15);
+
+    // Highlighted: official or whitelisted
+    const highlights = clean
+      .filter((m) => m.user.official || wlSet.has((m.user.username ?? "").toLowerCase()))
+      .sort((a, b) => b.id - a.id)
+      .slice(0, 25);
+
+    // Build key links with lastSharedAt + domain
+    const keyLinks = buildKeyLinks(clean, 12);
+
+    // Keep existing summary builder, but ensure keyLinks in response match types
+    // Note: build24hSummary() in your repo currently expects `links` (url/title) – keep it for compatibility.
+    const linksForSummary: { url: string; title?: string }[] = [];
+    for (const m of clean) for (const l of m.links) linksForSummary.push({ url: l.url, title: l.title });
+
+    const summary = build24hSummary({
+      symbol,
+      displayName: cfg.displayName,
+      cleanMessages: clean,
+      popular,
+      links: linksForSummary,
+      sentimentScore24h: sentimentScore,
+      vsPrevDay
+    }) as any;
+
+    // Override/ensure summary.keyLinks has correct shape
+    summary.keyLinks = keyLinks;
+
+    const state = await getJSON<any>(kState(symbol));
+
+    // posts24h: all clean posts in last 24h, newest-first by createdAt (then id)
+    const posts24h = [...clean]
+      .sort((a, b) => {
+        const bt = new Date(b.createdAt).getTime();
+        const at = new Date(a.createdAt).getTime();
+        if (bt !== at) return bt - at;
+        return (b.id ?? 0) - (a.id ?? 0);
+      })
+      .slice(0, 400); // safety cap so payload stays fast on iOS PWA
 
     const out: DashboardResponse = {
-      symbol: symbol.toUpperCase(),
-      displayName,
-
-      lastSyncAt: state.lastSyncAt ?? null,
-      watchers: state.lastWatchers ?? null,
-
+      symbol,
+      displayName: cfg.displayName,
+      lastSyncAt: state?.lastSyncAt ?? null,
+      watchers: state?.lastWatchers ?? null,
       sentiment24h: {
-        label: sLabel as any,
-        score: sMean,
-        sampleSize: sScores.length,
-        vsPrevDay: sentimentVsPrevDay
-      } as any,
-
-      volume24h: {
-        clean: volumeClean24h,
-        total: volumeTotal24h,
-        vsPrevDay: volVsPrevDay
-      } as any,
-
-      summary24h: summary24h as any,
-
-      news,
-
-      posts24h,
-      popularPosts24h,
-      highlightedPosts,
-
-      preview: {
-        topPost: posts24h[0],
-        topHighlight: highlightedPosts[0],
-        topLink: keyLinks[0]
-      }
-    } as any;
-
-    return {
-      statusCode: 200,
-      headers: {
-        "content-type": "application/json; charset=utf-8",
-        "cache-control": "public, max-age=15"
+        score: Number(sentimentScore.toFixed(4)),
+        label: sentimentLabel,
+        sampleSize: clean.length,
+        vsPrevDay: vsPrevDay === null ? null : Number(vsPrevDay.toFixed(4))
       },
-      body: JSON.stringify(out)
+      volume24h: {
+        clean: clean.length,
+        total: total24h,
+        buzzMultiple: buzzMultiple === null ? null : Number(buzzMultiple.toFixed(2))
+      },
+      summary24h: summary,
+      posts24h,
+      popularPosts24h: popular,
+      highlightedPosts: highlights,
+      preview: {
+        topPost: popular[0] ?? null,
+        topHighlight: highlights[0] ?? null,
+        topLink: keyLinks[0] ? { url: keyLinks[0].url, title: keyLinks[0].title, domain: keyLinks[0].domain, count: keyLinks[0].count } : null
+      }
     };
+
+    return new Response(JSON.stringify(out), {
+      status: 200,
+      headers: {
+        "content-type": "application/json",
+        "cache-control": "public, max-age=15"
+      }
+    });
   } catch (e: any) {
-    return {
-      statusCode: 400,
-      headers: { "content-type": "application/json; charset=utf-8" },
-      body: JSON.stringify({ error: e?.message ?? String(e) })
-    };
+    return new Response(JSON.stringify({ ok: false, error: String(e?.message ?? e) }), {
+      status: 400,
+      headers: { "content-type": "application/json" }
+    });
   }
 };
