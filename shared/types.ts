@@ -59,6 +59,14 @@ export type DashboardResponse = {
     keyLinks: { url: string; title?: string; domain: string; count: number; lastSharedAt?: string }[];
   };
 
+  news24h: {
+    id: number;
+    title: string;
+    url: string;
+    source: string;
+    publishedAt?: string;
+  }[];
+
   posts24h: MessageLite[];
 
   popularPosts24h: MessageLite[];
