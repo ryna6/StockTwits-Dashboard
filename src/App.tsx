@@ -1,515 +1,519 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { DashboardResponse, StatsResponse, SentLabel } from "../shared/types";
-import Card from "./components/Card";
-import TickerPicker from "./components/TickerPicker";
-import PostsList from "./components/PostsList";
-import NewsList from "./components/NewsList";
-import ChartPanel from "./components/ChartPanel";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import type { DashboardResponse, StatsResponse } from "../shared/types";
 import { apiConfig, apiDashboard, apiStats, apiSync } from "./lib/api";
 import { fmtInt, timeAgo } from "./lib/format";
+import Card from "./components/Card";
+import PostsList from "./components/PostsList";
+import NewsList from "./components/NewsList";
+import TickerPicker from "./components/TickerPicker";
+import ChartPanel from "./components/ChartPanel";
 
-type RangeKey = "1D" | "1W" | "1M";
+type CardKey = "sentiment" | "volume" | "summary" | "news" | "popular" | "highlights" | "charts";
+type TickerOpt = { symbol: string; displayName: string; logoUrl?: string };
 
-function labelText(label: SentLabel): string {
-  if (label === "bull") return "Bullish";
-  if (label === "bear") return "Bearish";
-  return "Neutral";
-}
-
-function clamp(n: number, lo: number, hi: number) {
-  return Math.max(lo, Math.min(hi, n));
-}
-
-function sentimentIndex(score: number): number {
-  // score [-1..1] => [0..100]
-  return Math.round((clamp(score, -1, 1) + 1) * 50);
-}
-
-function pct(n: number | null): string {
-  if (n == null || !Number.isFinite(n)) return "—";
-  const v = Math.round(n * 1000) / 10;
-  const sign = v > 0 ? "+" : "";
-  return `${sign}${v}%`;
-}
-
-function deltaRow(label: string, value: number | null) {
-  return (
-    <div className="deltaRow" key={label}>
-      <div className="deltaLabel">{label}</div>
-      <div className="deltaValue">{pct(value)}</div>
-    </div>
-  );
-}
-
+// ======= EDIT THESE ONLY if you want different card titles =======
 const TITLES = {
   sentiment: "Sentiment",
   volume: "Message Volume",
   summary: "Summary",
   news: "News",
   popular: "Popular Posts",
-  keyUsers: "Key Users",
-  stats: "Advanced Stats"
+  highlights: "Key Users",
+  charts: "Advanced Stats"
+};
+// ================================================================
+
+function clamp(n: number, lo: number, hi: number) {
+  return Math.max(lo, Math.min(hi, n));
+}
+
+function labelText(label: "bull" | "bear" | "neutral") {
+  switch (label) {
+    case "bull":
+      return "Bullish";
+    case "bear":
+      return "Bearish";
+    default:
+      return "Neutral";
+  }
+}
+
+// Map [-1..+1] to [0..100], 50 neutral
+function sentimentToIndex(score: number) {
+  const s = Number.isFinite(score) ? score : 0;
+  return clamp(Math.round((s + 1) * 50), 0, 100);
+}
+
+function safeDomain(url: string): string | undefined {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return undefined;
+  }
+}
+
+type Change = {
+  from: number;
+  to: number;
+  diff: number;
+  pct: number | null;
 };
 
+function computeChange(series: number[], stepsBack: number): Change | null {
+  if (!series.length) return null;
+  const to = series[series.length - 1];
+  const i = series.length - 1 - stepsBack;
+  if (i < 0) return null;
+  const from = series[i];
+  const diff = to - from;
+  const pct = from !== 0 ? diff / from : null;
+  return { from, to, diff, pct };
+}
+
+function pctText(pct: number | null) {
+  if (pct == null || !Number.isFinite(pct)) return "—";
+  const v = Math.round(pct * 1000) / 10;
+  const sign = v > 0 ? "+" : "";
+  return `${sign}${v}%`;
+}
+
+function lastNonNull<T>(arr: T[], get: (x: T) => any): number[] {
+  const out: number[] = [];
+  for (const x of arr) {
+    const v = get(x);
+    if (v == null) continue;
+    if (!Number.isFinite(v)) continue;
+    out.push(v);
+  }
+  return out;
+}
+
 export default function App() {
-  const [tickers, setTickers] = useState<string[]>([]);
+  const [tickers, setTickers] = useState<TickerOpt[]>([]);
   const [symbol, setSymbol] = useState<string>("RCAT");
 
   const [dash, setDash] = useState<DashboardResponse | null>(null);
   const [stats, setStats] = useState<StatsResponse | null>(null);
 
-  const [loading, setLoading] = useState<boolean>(true);
-  const [err, setErr] = useState<string | null>(null);
+  const [loading, setLoading] = useState<boolean>(false);
+  const [error, setError] = useState<string>("");
 
-  const [syncing, setSyncing] = useState<boolean>(false);
+  const lastSuccessfulLoadRef = useRef<number>(0);
 
-  // Card collapsed states (overview vs expanded is handled by Card component)
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({
+  // collapsed state for cards
+  const [collapsed, setCollapsed] = useState<Record<CardKey, boolean>>({
     sentiment: false,
     volume: false,
     summary: false,
-    news: false,
-    popular: false,
-    keyUsers: false,
-    stats: false
+    news: true,
+    popular: true,
+    highlights: true,
+    charts: true
   });
 
-  const lastLoadedAt = useRef<number>(0);
+  // chart range
+  const [range, setRange] = useState<"1m" | "3m" | "12m">("3m");
 
   const selectedTicker = useMemo(() => {
     const s = symbol.toUpperCase();
-    return { symbol: s, displayName: dash?.displayName ?? s };
-  }, [symbol, dash?.displayName]);
+    const found = tickers.find((t) => t.symbol.toUpperCase() === s);
+    return found ?? { symbol: s, displayName: s };
+  }, [symbol, tickers]);
 
-  const headerParts = useMemo(() => {
-    const sym = (dash?.symbol ?? selectedTicker?.symbol ?? symbol ?? "—").toUpperCase();
-    const name = dash?.displayName ?? selectedTicker?.displayName ?? "";
-    return { sym, name };
-  }, [dash?.displayName, dash?.symbol, selectedTicker?.displayName, selectedTicker?.symbol, symbol]);
+  const titleText = useMemo(() => {
+    if (selectedTicker?.displayName) return `${selectedTicker.symbol} — ${selectedTicker.displayName}`;
+    if (!dash) return symbol || "—";
+    return `${dash.symbol} — ${dash.displayName}`;
+  }, [dash, selectedTicker, symbol]);
 
-  const lastSyncAt = dash?.lastSyncAt ?? null;
-  const watchers = dash?.watchers ?? null;
+  const topThemesText = useMemo(() => {
+    const themes = (dash as any)?.summary24h?.themes ?? [];
+    if (!themes.length) return "—";
+    // supports both [{name,count}] and string[]
+    if (typeof themes[0] === "string") return themes.slice(0, 3).join(", ");
+    return themes.slice(0, 3).map((t: any) => t.name).join(", ");
+  }, [dash]);
 
-  const topPostAt = dash?.preview?.topPost?.createdAt ?? null;
-  const topPopAt = dash?.popularPosts24h?.[0]?.createdAt ?? null;
-  const topHiAt = dash?.highlightedPosts?.[0]?.createdAt ?? null;
-  const newsPublishedAt = dash?.news?.[0]?.publishedAt ?? null;
+  const mostShared = useMemo(() => {
+    const k = (dash as any)?.summary24h?.keyLinks?.[0];
+    if (!k) return null;
+    return k.title ?? k.url ?? null;
+  }, [dash]);
 
-  const loadAll = useCallback(
-    async (opts?: { includeStats?: boolean }) => {
-      setErr(null);
-      try {
-        const d = await apiDashboard(symbol);
-        setDash(d);
-
-        if (opts?.includeStats) {
-          const s = await apiStats(symbol);
-          setStats(s);
-        }
-
-        lastLoadedAt.current = Date.now();
-      } catch (e: any) {
-        setErr(e?.message ?? String(e));
-      } finally {
-        setLoading(false);
-      }
-    },
-    [symbol]
-  );
-
-  const loadConfigOnce = useCallback(async () => {
+  // ----- Load config + data -----
+  async function loadConfig() {
     try {
       const cfg = await apiConfig();
-      setTickers(cfg.tickers ?? []);
-      // If current symbol isn't in config, default to first.
-      if (cfg.tickers?.length) {
-        const up = symbol.toUpperCase();
-        if (!cfg.tickers.map((x) => x.toUpperCase()).includes(up)) {
-          setSymbol(cfg.tickers[0].toUpperCase());
-        }
-      }
+      const list = (cfg?.tickers ?? []).map((sym: string) => {
+        const up = sym.toUpperCase();
+        return { symbol: up, displayName: up } as TickerOpt;
+      });
+      if (list.length) setTickers(list);
     } catch {
-      // Non-fatal; fall back to hardcoded symbol
+      // non-fatal
     }
-  }, [symbol]);
+  }
 
-  // initial load
-  useEffect(() => {
-    let mounted = true;
-    (async () => {
-      await loadConfigOnce();
-      if (!mounted) return;
-      await loadAll({ includeStats: true });
-    })();
-    return () => {
-      mounted = false;
-    };
-  }, [loadAll, loadConfigOnce]);
-
-  // reload when symbol changes
-  useEffect(() => {
+  async function loadAll(sym: string) {
     setLoading(true);
-    setDash(null);
-    setStats(null);
-    (async () => {
-      await loadAll({ includeStats: true });
-    })();
-  }, [symbol, loadAll]);
+    setError("");
+    try {
+      const d = await apiDashboard(sym);
+      setDash(d);
+      const s = await apiStats(sym);
+      setStats(s);
+      lastSuccessfulLoadRef.current = Date.now();
+    } catch (e: any) {
+      setError(e?.message ?? String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
 
-  // stale-on-focus refresh (avoid spamming)
-  useEffect(() => {
-    const STALE_MS = 8 * 60 * 1000;
-
-    const maybeRefresh = async () => {
-      const age = Date.now() - (lastLoadedAt.current || 0);
-      if (age > STALE_MS) {
-        await loadAll({ includeStats: true });
-      }
-    };
-
-    const onVis = () => {
-      if (document.visibilityState === "visible") {
-        maybeRefresh();
-      }
-    };
-
-    window.addEventListener("focus", maybeRefresh);
-    document.addEventListener("visibilitychange", onVis);
-
-    return () => {
-      window.removeEventListener("focus", maybeRefresh);
-      document.removeEventListener("visibilitychange", onVis);
-    };
-  }, [loadAll]);
-
-  const refreshNow = useCallback(async () => {
-    if (syncing) return;
-    setSyncing(true);
-    setErr(null);
+  async function refreshNow() {
+    setLoading(true);
+    setError("");
     try {
       await apiSync(symbol);
-      await loadAll({ includeStats: true });
+      await loadAll(symbol);
     } catch (e: any) {
-      setErr(e?.message ?? String(e));
+      setError(e?.message ?? String(e));
     } finally {
-      setSyncing(false);
+      setLoading(false);
     }
-  }, [symbol, syncing, loadAll]);
+  }
 
-  const sent = dash?.sentiment24h;
-  const vol = dash?.volume24h;
+  useEffect(() => {
+    loadConfig().catch(() => {});
+    loadAll(symbol).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  const sentIdx = sent ? sentimentIndex(sent.score) : null;
-  const sentLabel = sent ? labelText(sent.label) : "—";
+  useEffect(() => {
+    loadAll(symbol).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [symbol]);
 
-  const sentColorClass =
-    sent?.label === "bull" ? "bull" : sent?.label === "bear" ? "bear" : "neutral";
-
-  // Range rows (computed from daily stats series)
-  const rangeDeltas = useMemo(() => {
-    const out: Record<RangeKey, { vol: number | null; sent: number | null }> = {
-      "1D": { vol: null, sent: null },
-      "1W": { vol: null, sent: null },
-      "1M": { vol: null, sent: null }
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState !== "visible") return;
+      if (lastSuccessfulLoadRef.current === 0) return;
+      const age = Date.now() - lastSuccessfulLoadRef.current;
+      if (age > 8 * 60 * 1000) refreshNow().catch(() => {});
     };
-    const series = stats?.series ?? [];
-    if (series.length < 2) return out;
-
-    const last = series[series.length - 1];
-
-    const findByOffset = (days: number) => {
-      const idx = series.length - 1 - days;
-      return idx >= 0 ? series[idx] : null;
+    window.addEventListener("focus", onVis);
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      window.removeEventListener("focus", onVis);
+      document.removeEventListener("visibilitychange", onVis);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-    // 1D ~ previous day
-    const d1 = findByOffset(1);
-    if (d1) {
-      out["1D"].vol = d1.volumeClean ? (last.volumeClean - d1.volumeClean) / d1.volumeClean : null;
-      out["1D"].sent =
-        d1.sentimentMean != null ? last.sentimentMean - d1.sentimentMean : null;
-    }
+  // ----- Stats-derived series for deltas -----
+  const points = (stats as any)?.series ?? [];
 
-    // 1W ~ 7 trading days-ish (use 7 points back in daily series)
-    const w1 = findByOffset(7);
-    if (w1) {
-      out["1W"].vol = w1.volumeClean ? (last.volumeClean - w1.volumeClean) / w1.volumeClean : null;
-      out["1W"].sent =
-        w1.sentimentMean != null ? last.sentimentMean - w1.sentimentMean : null;
-    }
+  const sentDaily = useMemo(() => {
+    return lastNonNull(points as any[], (p: any) => p.sentimentMean);
+  }, [points]);
 
-    // 1M ~ 30 points back (calendar-ish)
-    const m1 = findByOffset(30);
-    if (m1) {
-      out["1M"].vol = m1.volumeClean ? (last.volumeClean - m1.volumeClean) / m1.volumeClean : null;
-      out["1M"].sent =
-        m1.sentimentMean != null ? last.sentimentMean - m1.sentimentMean : null;
-    }
+  const sentDailyIdx = useMemo(() => sentDaily.map((s) => sentimentToIndex(s)), [sentDaily]);
 
-    return out;
-  }, [stats]);
+  const sent1d = useMemo(() => computeChange(sentDailyIdx, 1), [sentDailyIdx]);
+  const sent1w = useMemo(() => computeChange(sentDailyIdx, 5), [sentDailyIdx]);
+  const sent1m = useMemo(() => computeChange(sentDailyIdx, 21), [sentDailyIdx]);
+
+  const sentNowIdx = sentDailyIdx.length
+    ? sentDailyIdx[sentDailyIdx.length - 1]
+    : dash
+    ? sentimentToIndex(dash.sentiment24h.score)
+    : 50;
+
+  const volDaily = useMemo(() => {
+    return lastNonNull(points as any[], (p: any) => p.volumeClean);
+  }, [points]);
+
+  const vol1d = useMemo(() => computeChange(volDaily, 1), [volDaily]);
+  const vol1w = useMemo(() => computeChange(volDaily, 5), [volDaily]);
+  const vol1m = useMemo(() => computeChange(volDaily, 21), [volDaily]);
+
+  const volNow = volDaily.length ? volDaily[volDaily.length - 1] : dash?.volume24h?.clean ?? 0;
+
+  const toneText = dash ? labelText(dash.sentiment24h.label) : "Neutral";
+
+  // ---- timestamps for “sent x ago” ----
+  const summarySentAt = (dash as any)?.posts24h?.[0]?.createdAt ?? dash?.summary24h?.evidencePosts?.[0]?.createdAt ?? null;
+  const popularSentAt = dash?.preview?.topPost?.createdAt ?? null;
+  const highlightsSentAt = dash?.preview?.topHighlight?.createdAt ?? null;
+
+  // StockTwits "News" tab items (server-provided). Keep this null-safe to avoid first-render crashes.
+  const newsItems = (((dash as any)?.news ?? []) as any[]) ?? [];
+  const topNews = newsItems[0] ?? null;
+  const newsPublishedAt = topNews?.publishedAt ?? null;
+  const newsLinks = useMemo(() => {
+    return (newsItems ?? []).map((n: any) => ({
+      url: n?.url,
+      title: n?.title,
+      domain: (n?.source ?? safeDomain(n?.url) ?? "stocktwits") as string,
+      lastSharedAt: n?.publishedAt
+    }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dash]);
 
   return (
-    <div className="page">
-      <header className="header">
-        <div className="brandTitle">StockTwits Catalyst Dashboard</div>
+    <div className="app">
+      <div className="topSafe" />
+
+      <header
+        className="header"
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "stretch"
+        }}
+      >
+        <div className="brandTitle">StockTwits Dashboard</div>
 
         <div className="headerRow">
-          <div className="brand">
-            <div className="brandSub">
-              <span className="brandSym">{headerParts.sym}</span>
-              <span className="brandSep"> — </span>
-              <span className="brandName">{headerParts.name || headerParts.sym}</span>
+          <div className="headerLeft">
+            <div className="headerTicker">
+              <div className="headerSymbol">{selectedTicker.symbol}</div>
+              <div className="headerName">{selectedTicker.displayName}</div>
             </div>
 
-            <div className="brandMeta">
-              <span className="metaItem">
-                Last sync:{" "}
-                {lastSyncAt ? (
-                  <span className="mono">{timeAgo(lastSyncAt)}</span>
-                ) : (
-                  <span className="muted">—</span>
-                )}
-              </span>
-              <span className="metaDot">•</span>
-              <span className="metaItem">
-                Watchers:{" "}
-                {watchers != null ? (
-                  <span className="mono">{fmtInt(watchers)}</span>
-                ) : (
-                  <span className="muted">—</span>
-                )}
-              </span>
+            <div className="headerMeta">
+              <span>Last sync: {dash?.lastSyncAt ? timeAgo(dash.lastSyncAt) : "—"}</span>
+              <span className="dot">•</span>
+              <span>Watchers: {dash?.watchers != null ? fmtInt(dash.watchers) : "—"}</span>
             </div>
           </div>
 
-          <div className="controls">
+          <div className="headerRight">
             <TickerPicker
-              tickers={tickers.length ? tickers : ["RCAT", "UMAC", "GRRR", "ACHR", "FIG"]}
+              tickers={tickers.length ? tickers : [{ symbol: "RCAT", displayName: "RCAT" }]}
               value={symbol}
-              onChange={(s) => setSymbol(s)}
+              onChange={setSymbol}
             />
-
-            <button
-              className="btn"
-              onClick={refreshNow}
-              disabled={syncing}
-              aria-busy={syncing}
-              title="Sync + refresh"
-            >
-              {syncing ? "Refreshing…" : "Refresh"}
+            <button className="btn refreshBtn" onClick={refreshNow} disabled={loading}>
+              {loading ? "Refreshing…" : "Refresh"}
             </button>
           </div>
         </div>
 
-        {err ? <div className="errorBox">{err}</div> : null}
+        <div className="headerSubRow">
+          <div className="headerTitle">{titleText}</div>
+          {error ? <div className="error">{error}</div> : null}
+        </div>
       </header>
 
-      <main className="grid">
-        <Card
-          title={TITLES.sentiment}
-          collapsed={collapsed.sentiment}
-          onToggle={() => setCollapsed((c) => ({ ...c, sentiment: !c.sentiment }))}
-          overview={
-            <div className="overviewStack">
-              <div className="overviewMain">
-                <span className={`sentLabel ${sentColorClass}`}>{sentLabel}</span>
-                {sentIdx != null ? (
-                  <span className="sentIndex">{sentIdx}</span>
-                ) : (
-                  <span className="muted">—</span>
-                )}
-                <span className="muted">/100</span>
+      {dash ? (
+        <main className="grid">
+          {/* SENTIMENT */}
+          <Card
+            title={TITLES.sentiment}
+            collapsed={collapsed.sentiment}
+            onToggle={() => setCollapsed((c) => ({ ...c, sentiment: !c.sentiment }))}
+            overview={
+              <div className="overviewStack">
+                <div className="overviewMain">
+                  <div className={"sentLabel " + dash.sentiment24h.label}>{toneText}</div>
+                  <div className="sentNumber">{sentNowIdx}</div>
+                  <div className="sentOutOf">/100</div>
+                </div>
+                <div className="overviewStamp">vs prev day: {pctText(dash.sentiment24h.vsPrevDay as any)}</div>
               </div>
-              <div className="overviewStamp">vs prev day: {pct(sent?.vsPrevDay ?? null)}</div>
-            </div>
-          }
-        >
-          <div className="expanded">
+            }
+          >
             <div className="deltaGrid">
-              {deltaRow("1D", rangeDeltas["1D"].sent)}
-              {deltaRow("1W", rangeDeltas["1W"].sent)}
-              {deltaRow("1M", rangeDeltas["1M"].sent)}
-            </div>
-
-            <div className="muted small">
-              Sample size: <span className="mono">{fmtInt(sent?.sampleSize ?? 0)}</span>
-            </div>
-          </div>
-        </Card>
-
-        <Card
-          title={TITLES.volume}
-          collapsed={collapsed.volume}
-          onToggle={() => setCollapsed((c) => ({ ...c, volume: !c.volume }))}
-          overview={
-            <div className="overviewStack">
-              <div className="overviewMain">
-                <span className="bigNum">{fmtInt(vol?.clean ?? 0)}</span>
-                <span className="muted">clean /</span>
-                <span className="muted">{fmtInt(vol?.total ?? 0)} total</span>
+              <div className="deltaRow">
+                <div className="deltaLabel">1D</div>
+                <div className="deltaValue">{sent1d ? pctText(sent1d.pct) : "—"}</div>
               </div>
-              <div className="overviewStamp">vs prev day: {pct(vol?.vsPrevDay ?? null)}</div>
+              <div className="deltaRow">
+                <div className="deltaLabel">1W</div>
+                <div className="deltaValue">{sent1w ? pctText(sent1w.pct) : "—"}</div>
+              </div>
+              <div className="deltaRow">
+                <div className="deltaLabel">1M</div>
+                <div className="deltaValue">{sent1m ? pctText(sent1m.pct) : "—"}</div>
+              </div>
             </div>
-          }
-        >
-          <div className="expanded">
+          </Card>
+
+          {/* VOLUME */}
+          <Card
+            title={TITLES.volume}
+            collapsed={collapsed.volume}
+            onToggle={() => setCollapsed((c) => ({ ...c, volume: !c.volume }))}
+            overview={
+              <div className="overviewStack">
+                <div className="overviewMain">
+                  <div className="bigNum">{fmtInt(volNow)}</div>
+                  <div className="muted">clean</div>
+                </div>
+                <div className="overviewStamp">vs prev day: {pctText(dash.volume24h.vsPrevDay as any)}</div>
+              </div>
+            }
+          >
             <div className="deltaGrid">
-              {deltaRow("1D", rangeDeltas["1D"].vol)}
-              {deltaRow("1W", rangeDeltas["1W"].vol)}
-              {deltaRow("1M", rangeDeltas["1M"].vol)}
-            </div>
-          </div>
-        </Card>
-
-        <Card
-          title={TITLES.summary}
-          collapsed={collapsed.summary}
-          onToggle={() => setCollapsed((c) => ({ ...c, summary: !c.summary }))}
-          overview={
-            <div className="overviewStack">
-              <div className="overviewMain">
-                {dash?.summary24h?.tldr ? (
-                  <span className="summaryMini">{dash.summary24h.tldr}</span>
-                ) : (
-                  <span className="muted">No summary yet.</span>
-                )}
+              <div className="deltaRow">
+                <div className="deltaLabel">1D</div>
+                <div className="deltaValue">{vol1d ? pctText(vol1d.pct) : "—"}</div>
               </div>
-              {topPostAt ? <div className="overviewStamp">latest post {timeAgo(topPostAt)}</div> : null}
+              <div className="deltaRow">
+                <div className="deltaLabel">1W</div>
+                <div className="deltaValue">{vol1w ? pctText(vol1w.pct) : "—"}</div>
+              </div>
+              <div className="deltaRow">
+                <div className="deltaLabel">1M</div>
+                <div className="deltaValue">{vol1m ? pctText(vol1m.pct) : "—"}</div>
+              </div>
             </div>
-          }
-        >
-          <div className="expanded">
-            {dash?.summary24h?.tldr ? (
-              <div className="summaryBlock">{dash.summary24h.tldr}</div>
-            ) : (
-              <div className="muted">No summary found.</div>
-            )}
+          </Card>
 
-            {dash?.summary24h?.themes?.length ? (
-              <div className="themes">
-                {dash.summary24h.themes.map((t) => (
-                  <span key={t} className="pill">
-                    {t}
+          {/* SUMMARY */}
+          <Card
+            title={TITLES.summary}
+            collapsed={collapsed.summary}
+            onToggle={() => setCollapsed((c) => ({ ...c, summary: !c.summary }))}
+            overview={
+              <div className="overviewStack">
+                <div className="overviewMain">
+                  <div className="summaryOverview">
+                    <p>
+                      <span className="summaryLabel">Retail tone:</span> {labelText(dash.sentiment24h.label)} ({sentNowIdx})
+                    </p>
+                    <p>
+                      <span className="summaryLabel">Top themes:</span> {topThemesText}
+                    </p>
+                    <p>
+                      <span className="summaryLabel">Most shared link:</span> {mostShared ?? "—"}
+                    </p>
+                  </div>
+                </div>
+                {summarySentAt ? <div className="overviewStamp">sent {timeAgo(summarySentAt)}</div> : null}
+              </div>
+            }
+          >
+            <div className="section">
+              <div className="sectionTitle">Retail tone</div>
+              <div className="tldr">
+                {labelText(dash.sentiment24h.label)} ({sentNowIdx}) · 24h sentiment (spam-filtered)
+              </div>
+            </div>
+
+            <div className="section">
+              <div className="sectionTitle">Most shared link</div>
+              <div className="tldr">{mostShared ?? "No links found."}</div>
+            </div>
+
+            <div className="section">
+              <div className="sectionTitle">Top themes</div>
+              <div className="chips">
+                {((dash as any).summary24h.themes ?? []).map((t: any) => (
+                  <span key={t.name ?? t} className="chip">
+                    {typeof t === "string" ? t : `${t.name} · ${t.count}`}
                   </span>
                 ))}
               </div>
-            ) : null}
+            </div>
 
-            {dash?.summary24h?.keyLinks?.length ? (
-              <div className="keyLinks">
-                <div className="sectionTitle">Most shared link</div>
-                <a
-                  className="linkRow"
-                  href={dash.summary24h.keyLinks[0].url}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  <span className="linkDomain">{dash.summary24h.keyLinks[0].domain}</span>
-                  <span className="linkTitle">
-                    {dash.summary24h.keyLinks[0].title ?? dash.summary24h.keyLinks[0].url}
-                  </span>
-                  <span className="linkMeta">
-                    {fmtInt(dash.summary24h.keyLinks[0].count)}× • shared{" "}
-                    {timeAgo(dash.summary24h.keyLinks[0].lastSharedAt)}
-                  </span>
-                </a>
+            <div className="section">
+              <div className="sectionTitle">Posts (last 24h)</div>
+              <PostsList posts={((dash as any)?.posts24h ?? dash.summary24h.evidencePosts) as any} emptyText="No posts found." />
+            </div>
+          </Card>
+
+          {/* NEWS (StockTwits News tab only) */}
+          <Card
+            title={TITLES.news}
+            collapsed={collapsed.news}
+            onToggle={() => setCollapsed((c) => ({ ...c, news: !c.news }))}
+            overview={
+              <div className="overviewStack">
+                <div className="overviewMain">
+                  {topNews ? (
+                    <>
+                      <span className="newsMiniSource">{String(topNews.source ?? "stocktwits").toLowerCase()}</span>
+                      <span className="newsMiniTitle">{topNews.title ?? topNews.url}</span>
+                    </>
+                  ) : (
+                    <span className="muted">No news found.</span>
+                  )}
+                </div>
+                {newsPublishedAt ? <div className="overviewStamp">published {timeAgo(newsPublishedAt)}</div> : null}
               </div>
-            ) : null}
+            }
+          >
+            {/* Pass both shapes; NewsList will use whichever it supports */}
+            <NewsList {...({ symbol, news: newsItems, links: newsLinks } as any)} />
+          </Card>
 
-            <div className="sectionTitle">Posts (last 24h)</div>
-            <PostsList posts={dash?.posts24h ?? []} />
+          {/* POPULAR */}
+          <Card
+            title={TITLES.popular}
+            collapsed={collapsed.popular}
+            onToggle={() => setCollapsed((c) => ({ ...c, popular: !c.popular }))}
+            overview={
+              <div className="overviewStack">
+                <div className="overviewMain">
+                  {dash.preview.topPost ? (
+                    <>
+                      <span className="mono">@{dash.preview.topPost.user.username}</span>:{" "}
+                      {dash.preview.topPost.body.slice(0, 160)}
+                      {dash.preview.topPost.body.length > 160 ? "…" : ""}
+                    </>
+                  ) : (
+                    <span className="muted">No popular posts.</span>
+                  )}
+                </div>
+                {popularSentAt ? <div className="overviewStamp">sent {timeAgo(popularSentAt)}</div> : null}
+              </div>
+            }
+          >
+            <PostsList posts={dash.popularPosts24h as any} emptyText="No popular posts in last 24h." />
+          </Card>
+
+          {/* KEY USERS / HIGHLIGHTS */}
+          <Card
+            title={TITLES.highlights}
+            collapsed={collapsed.highlights}
+            onToggle={() => setCollapsed((c) => ({ ...c, highlights: !c.highlights }))}
+            overview={
+              <div className="overviewStack">
+                <div className="overviewMain">
+                  {dash.preview.topHighlight ? (
+                    <>
+                      <span className="mono">@{dash.preview.topHighlight.user.username}</span>:{" "}
+                      {dash.preview.topHighlight.body.slice(0, 160)}
+                      {dash.preview.topHighlight.body.length > 160 ? "…" : ""}
+                    </>
+                  ) : (
+                    <span className="muted">No key-user posts.</span>
+                  )}
+                </div>
+                {highlightsSentAt ? <div className="overviewStamp">sent {timeAgo(highlightsSentAt)}</div> : null}
+              </div>
+            }
+          >
+            <PostsList posts={dash.highlightedPosts as any} emptyText="No key-user posts found." />
+          </Card>
+
+          {/* CHARTS */}
+          <div className="card full">
+            <Card
+              title={TITLES.charts}
+              collapsed={collapsed.charts}
+              onToggle={() => setCollapsed((c) => ({ ...c, charts: !c.charts }))}
+              overview={<div className="muted">Daily series + price overlay (if configured).</div>}
+            >
+              <ChartPanel stats={stats} range={range} onRange={(r) => setRange(r)} />
+            </Card>
           </div>
-        </Card>
+        </main>
+      ) : null}
 
-        <Card
-          title={TITLES.news}
-          collapsed={collapsed.news}
-          onToggle={() => setCollapsed((c) => ({ ...c, news: !c.news }))}
-          overview={
-            <div className="overviewStack">
-              <div className="overviewMain">
-                {dash.news?.[0] ? (
-                  <>
-                    <span className="newsMiniSource">
-                      {(dash.news[0].source ?? "stocktwits").toLowerCase()}
-                    </span>
-                    <span className="newsMiniTitle">{dash.news[0].title}</span>
-                  </>
-                ) : (
-                  <span className="muted">No news found.</span>
-                )}
-              </div>
-              {newsPublishedAt ? (
-                <div className="overviewStamp">published {timeAgo(newsPublishedAt)}</div>
-              ) : null}
-            </div>
-          }
-        >
-          <NewsList symbol={symbol} news={dash.news} />
-        </Card>
-
-        <Card
-          title={TITLES.popular}
-          collapsed={collapsed.popular}
-          onToggle={() => setCollapsed((c) => ({ ...c, popular: !c.popular }))}
-          overview={
-            <div className="overviewStack">
-              <div className="overviewMain">
-                {dash?.popularPosts24h?.[0] ? (
-                  <span className="summaryMini">{dash.popularPosts24h[0].body}</span>
-                ) : (
-                  <span className="muted">No posts found.</span>
-                )}
-              </div>
-              {topPopAt ? <div className="overviewStamp">top post {timeAgo(topPopAt)}</div> : null}
-            </div>
-          }
-        >
-          <PostsList posts={dash?.popularPosts24h ?? []} />
-        </Card>
-
-        <Card
-          title={TITLES.keyUsers}
-          collapsed={collapsed.keyUsers}
-          onToggle={() => setCollapsed((c) => ({ ...c, keyUsers: !c.keyUsers }))}
-          overview={
-            <div className="overviewStack">
-              <div className="overviewMain">
-                {dash?.highlightedPosts?.[0] ? (
-                  <span className="summaryMini">{dash.highlightedPosts[0].body}</span>
-                ) : (
-                  <span className="muted">No highlighted posts.</span>
-                )}
-              </div>
-              {topHiAt ? <div className="overviewStamp">latest {timeAgo(topHiAt)}</div> : null}
-            </div>
-          }
-        >
-          <PostsList posts={dash?.highlightedPosts ?? []} />
-        </Card>
-
-        <Card
-          title={TITLES.stats}
-          collapsed={collapsed.stats}
-          onToggle={() => setCollapsed((c) => ({ ...c, stats: !c.stats }))}
-          overview={
-            <div className="overviewStack">
-              <div className="overviewMain">
-                <span className="muted">
-                  {stats?.series?.length ? `${fmtInt(stats.series.length)} points` : "No series yet."}
-                </span>
-              </div>
-            </div>
-          }
-        >
-          <ChartPanel stats={stats} />
-        </Card>
-      </main>
-
-      <footer className="footer">
-        {loading ? <span className="muted">Loading…</span> : null}
-      </footer>
+      <div className="bottomSafe" />
     </div>
   );
 }
