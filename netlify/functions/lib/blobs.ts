@@ -1,38 +1,28 @@
 import { getStore } from "@netlify/blobs";
 
-// Bump this only if you intentionally want to “reset” storage keys/schema.
 const STORE_NAME = "stcd-v2";
 
-/**
- * IMPORTANT:
- * - Do NOT create a blobs store at module/global scope.
- * - In Netlify Functions, the Blobs environment may not be initialized until invocation time.
- * - Creating the store per operation also avoids warm-invocation token issues.
- */
 function store() {
+  // 1) Preferred: zero-config in Netlify Functions
   try {
-    // Preferred: Netlify auto-configures in production Functions.
     return getStore(STORE_NAME);
   } catch (e: any) {
-    // Fallback for cases where the Blobs environment is not injected
-    // (local dev, misconfigured site, etc.). Only works if you set env vars.
-    const siteID =
-      process.env.BLOBS_SITE_ID ||
-      process.env.NETLIFY_SITE_ID ||
-      process.env.SITE_ID ||
-      "";
-
-    const token =
-      process.env.BLOBS_TOKEN ||
-      process.env.NETLIFY_AUTH_TOKEN ||
-      process.env.NETLIFY_TOKEN ||
-      "";
+    // 2) Manual fallback via env vars (recommended if your site isn't injecting context)
+    const siteID = process.env.BLOBS_SITE_ID?.trim() || "";
+    const token = process.env.BLOBS_TOKEN?.trim() || "";
 
     if (siteID && token) {
       return getStore(STORE_NAME, { siteID, token });
     }
 
-    throw e;
+    // Throw a more actionable error
+    throw new Error(
+      [
+        "Netlify Blobs is not configured for this runtime.",
+        "Fix: set BLOBS_SITE_ID (Project ID) and BLOBS_TOKEN (Personal Access Token) in Netlify Environment variables, then redeploy.",
+        `Original: ${e?.message || String(e)}`
+      ].join(" ")
+    );
   }
 }
 
@@ -43,14 +33,10 @@ export async function getJSON<T>(key: string): Promise<T | null> {
 
 export async function setJSON(key: string, value: unknown, opts?: Record<string, unknown>) {
   const body = JSON.stringify(value);
-  return await store().set(
-    key,
-    body,
-    {
-      metadata: { contentType: "application/json" },
-      ...(opts ?? {})
-    } as any
-  );
+  return await store().set(key, body, {
+    metadata: { contentType: "application/json" },
+    ...(opts ?? {})
+  } as any);
 }
 
 export async function delKey(key: string) {
@@ -82,8 +68,6 @@ export function kHash(hash: string) {
 export function kLock(symbol: string) {
   return `lock/${symbol.toUpperCase()}.json`;
 }
-
-/** ✅ Needed by dashboard.ts (StockTwits News-tab cache) */
 export function kNews(symbol: string) {
   return `news/${symbol.toUpperCase()}.json`;
 }
