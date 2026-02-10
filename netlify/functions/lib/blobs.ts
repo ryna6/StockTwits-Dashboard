@@ -3,27 +3,34 @@ import { getStore } from "@netlify/blobs";
 // Bump this to reset all stored data if your blobs contain old schema.
 const STORE_NAME = "stcd-v2";
 
-export const store = getStore(STORE_NAME);
+/**
+ * IMPORTANT: Do NOT cache the store in module/global scope.
+ * Netlify Blobs auth tokens can expire across warm invocations.
+ * Create the store per operation to avoid "Failed to decode token: Token expired".
+ */
+function store() {
+  return getStore(STORE_NAME);
+}
 
 export async function getJSON<T>(key: string): Promise<T | null> {
-  const v = await store.get(key, { type: "json" });
+  const v = await store().get(key, { type: "json" });
   return (v ?? null) as T | null;
 }
 
 export async function setJSON(key: string, value: unknown, opts?: Record<string, unknown>) {
   const body = JSON.stringify(value);
-  return await store.set(key, body, {
+  return await store().set(key, body, {
     metadata: { contentType: "application/json" },
     ...(opts ?? {})
   } as any);
 }
 
 export async function delKey(key: string) {
-  return await store.delete(key);
+  return await store().delete(key);
 }
 
 export async function listKeys(prefix: string): Promise<string[]> {
-  const res = await store.list({ prefix } as any);
+  const res = await store().list({ prefix } as any);
   const blobs = (res as any)?.blobs ?? [];
   return blobs.map((b: any) => b.key);
 }
@@ -45,4 +52,7 @@ export function kHash(hash: string) {
 }
 export function kLock(symbol: string) {
   return `lock/${symbol.toUpperCase()}.json`;
+}
+export function kNews(symbol: string) {
+  return `news/${symbol.toUpperCase()}.json`;
 }
