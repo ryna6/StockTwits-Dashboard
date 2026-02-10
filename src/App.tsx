@@ -196,9 +196,9 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [symbol]);
 
-  const headerLine = useMemo(() => {
-    if (!dash) return selectedTicker ? `${selectedTicker.symbol} — ${selectedTicker.displayName}` : symbol || "—";
-    return `${dash.symbol} — ${dash.displayName}`;
+  const companyName = useMemo(() => {
+    if (dash?.displayName) return dash.displayName;
+    return selectedTicker?.displayName ?? symbol ?? "—";
   }, [dash, selectedTicker, symbol]);
 
   const topThemesText = useMemo(() => {
@@ -249,7 +249,8 @@ export default function App() {
   const summarySentAt = (dash as any)?.posts24h?.[0]?.createdAt ?? dash?.summary24h?.evidencePosts?.[0]?.createdAt ?? null;
   const popularSentAt = dash?.preview?.topPost?.createdAt ?? null;
   const highlightsSentAt = dash?.preview?.topHighlight?.createdAt ?? null;
-  const newsSharedAt = (dash?.summary24h?.keyLinks?.[0] as any)?.lastSharedAt ?? null;
+  const topNews = dash?.news24h?.[0] ?? null;
+  const newsSharedAt = topNews?.publishedAt ?? null;
 
   return (
     <div className="app">
@@ -291,7 +292,7 @@ export default function App() {
                   }}
                 />
               ) : null}
-              <div className="brandSub">{headerLine}</div>
+              <div className="brandSub">{companyName}</div>
             </div>
 
             <div className="brandMeta">
@@ -313,7 +314,7 @@ export default function App() {
               marginLeft: "auto"
             }}
           >
-            <TickerPicker value={symbol} options={tickers} onChange={setSymbol} />
+            <TickerPicker value={symbol} options={tickers} onChange={setSymbol} compact />
             <button className="refreshBtn" onClick={refreshNow} disabled={syncing || !symbol}>
               {syncing ? "Syncing…" : "Refresh"}
             </button>
@@ -473,20 +474,20 @@ export default function App() {
             overview={
               <div className="overviewStack">
                 <div className="overviewMain">
-                  {dash.summary24h.keyLinks?.[0] ? (
+                  {topNews ? (
                     <>
-                      <span className="newsMiniSource">{dash.summary24h.keyLinks[0].domain}</span>
-                      <span className="newsMiniTitle">{dash.summary24h.keyLinks[0].title ?? dash.summary24h.keyLinks[0].url}</span>
+                      <span className="newsMiniSource">{topNews.source}</span>
+                      <span className="newsMiniTitle">{topNews.title}</span>
                     </>
                   ) : (
-                    <span className="muted">No links found.</span>
+                    <span className="muted">No news found.</span>
                   )}
                 </div>
                 {newsSharedAt ? <div className="overviewStamp">shared {timeAgo(newsSharedAt)}</div> : null}
               </div>
             }
           >
-            <NewsList links={dash.summary24h.keyLinks as any} />
+            <NewsList links={dash.news24h as any} />
           </Card>
 
           {/* POPULAR */}
