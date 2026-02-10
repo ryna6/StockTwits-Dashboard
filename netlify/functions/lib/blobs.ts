@@ -1,22 +1,21 @@
 import { getStore } from "@netlify/blobs";
 
-// Bump this to reset all stored data if your blobs contain old schema.
+// Bump this only if you intentionally want to “reset” storage keys/schema.
 const STORE_NAME = "stcd-v2";
 
 /**
  * IMPORTANT:
  * - Do NOT create a blobs store at module/global scope.
  * - In Netlify Functions, the Blobs environment may not be initialized until invocation time.
- * - Creating the store per operation also avoids the "Failed to decode token: Token expired"
- *   issue caused by reusing a warm store instance.
+ * - Creating the store per operation also avoids warm-invocation token issues.
  */
 function store() {
   try {
-    // Zero-config path (preferred): Netlify auto-configures siteID/token at runtime.
+    // Preferred: Netlify auto-configures in production Functions.
     return getStore(STORE_NAME);
   } catch (e: any) {
-    // Optional fallback (only if you manually provide creds in env vars).
-    // This is here to make the error self-healing if your site is missing Blobs context.
+    // Fallback for cases where the Blobs environment is not injected
+    // (local dev, misconfigured site, etc.). Only works if you set env vars.
     const siteID =
       process.env.BLOBS_SITE_ID ||
       process.env.NETLIFY_SITE_ID ||
@@ -33,7 +32,6 @@ function store() {
       return getStore(STORE_NAME, { siteID, token });
     }
 
-    // Re-throw original error if no fallback creds exist.
     throw e;
   }
 }
@@ -43,16 +41,16 @@ export async function getJSON<T>(key: string): Promise<T | null> {
   return (v ?? null) as T | null;
 }
 
-export async function setJSON(
-  key: string,
-  value: unknown,
-  opts?: Record<string, unknown>
-) {
+export async function setJSON(key: string, value: unknown, opts?: Record<string, unknown>) {
   const body = JSON.stringify(value);
-  return await store().set(key, body, {
-    metadata: { contentType: "application/json" },
-    ...(opts ?? {})
-  } as any);
+  return await store().set(
+    key,
+    body,
+    {
+      metadata: { contentType: "application/json" },
+      ...(opts ?? {})
+    } as any
+  );
 }
 
 export async function delKey(key: string) {
@@ -65,6 +63,7 @@ export async function listKeys(prefix: string): Promise<string[]> {
   return blobs.map((b: any) => b.key);
 }
 
+/** Key helpers */
 export function kState(symbol: string) {
   return `state/${symbol.toUpperCase()}.json`;
 }
@@ -82,4 +81,9 @@ export function kHash(hash: string) {
 }
 export function kLock(symbol: string) {
   return `lock/${symbol.toUpperCase()}.json`;
+}
+
+/** ✅ Needed by dashboard.ts (StockTwits News-tab cache) */
+export function kNews(symbol: string) {
+  return `news/${symbol.toUpperCase()}.json`;
 }
