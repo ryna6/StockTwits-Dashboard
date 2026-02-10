@@ -10,7 +10,7 @@
 
   --good: rgba(75, 220, 145, 0.95);
   --bad: rgba(255, 92, 92, 0.95);
-  --neutral: rgba(210, 210, 210, 0.92);
+  --neutral: rgba(255, 208, 92, 0.95);
 
   --radius: 18px;
   --shadow: 0 10px 30px rgba(0,0,0,0.35);
@@ -70,15 +70,11 @@ a:hover{ text-decoration: underline; }
 }
 
 .brandLogo{
-  width: 26px !important;
-  height: 26px !important;
-  max-width: 26px !important;
-  max-height: 26px !important;
+  width: 26px;
+  height: 26px;
   border-radius: 10px;
   background: rgba(255,255,255,0.06);
   object-fit: contain;
-  flex: 0 0 auto;
-  display: block;
 }
 
 .brandSub{
@@ -153,15 +149,12 @@ a:hover{ text-decoration: underline; }
 }
 
 .tickerLogo{
-  width: 26px !important;
-  height: 26px !important;
-  max-width: 26px !important;
-  max-height: 26px !important;
+  width: 26px;
+  height: 26px;
   border-radius: 10px;
   background: rgba(255,255,255,0.06);
   object-fit: contain;
   flex: 0 0 auto;
-  display: block;
 }
 .tickerLogo.placeholder{
   display:inline-block;
@@ -635,12 +628,6 @@ a:hover{ text-decoration: underline; }
   line-height: 1.35;
 }
 
-/* Prevent long URLs/text from overflowing cards/modals */
-.postBody, .replyBody, .postLink, .newsTitle, .newsUrl{
-  overflow-wrap: anywhere;
-  word-break: break-word;
-}
-
 .postMeta{
   display: flex;
   flex-wrap: wrap;
@@ -655,11 +642,6 @@ a:hover{ text-decoration: underline; }
   align-items: center;
   gap: 6px;
 }
-
-/* Sentiment meta item colors (neutral should be grey/white, not yellow) */
-.metaItem.sentiment.bull{ color: var(--good); }
-.metaItem.sentiment.bear{ color: var(--bad); }
-.metaItem.sentiment.neutral{ color: var(--neutral); }
 
 /* Badges */
 .badge{
