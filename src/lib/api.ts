@@ -2,46 +2,47 @@ import type { DashboardResponse, StatsResponse } from "../../shared/types";
 
 async function readError(r: Response): Promise<string> {
   const text = await r.text().catch(() => "");
-  try {
-    const j = JSON.parse(text);
-    return j?.error ? String(j.error) : (text || `${r.status} ${r.statusText}`);
-  } catch {
-    return text || `${r.status} ${r.statusText}`;
-  }
+  return text ? ` ${text}` : "";
 }
 
-export async function apiConfig(): Promise<{ tickers: any[] }> {
-  const r = await fetch("/api/config");
-  if (!r.ok) throw new Error(await readError(r));
-  return await r.json();
+function withCacheBust(url: string): string {
+  // Avoid iOS Safari/PWA caching surprises
+  const u = new URL(url, window.location.origin);
+  u.searchParams.set("_ts", String(Date.now()));
+  return u.toString();
+}
+
+async function fetchNoStore(url: string, init?: RequestInit): Promise<Response> {
+  return fetch(withCacheBust(url), {
+    ...(init ?? {}),
+    cache: "no-store",
+    headers: {
+      "cache-control": "no-cache",
+      ...(init?.headers ?? {})
+    }
+  });
+}
+
+export async function apiConfig(): Promise<{ tickers: string[] }> {
+  const r = await fetchNoStore("/api/config");
+  if (!r.ok) throw new Error(`config failed: ${r.status}${await readError(r)}`);
+  return (await r.json()) as { tickers: string[] };
 }
 
 export async function apiDashboard(symbol: string): Promise<DashboardResponse> {
-  const r = await fetch(`/api/dashboard?symbol=${encodeURIComponent(symbol)}`);
-  if (!r.ok) throw new Error(await readError(r));
-  return await r.json();
+  const r = await fetchNoStore(`/api/dashboard?symbol=${encodeURIComponent(symbol)}`);
+  if (!r.ok) throw new Error(`dashboard failed: ${r.status}${await readError(r)}`);
+  return (await r.json()) as DashboardResponse;
 }
 
-export async function apiStats(symbol: string, range: 30 | 90 | 365): Promise<StatsResponse> {
-  const r = await fetch(`/api/stats?symbol=${encodeURIComponent(symbol)}&range=${range}`);
-  if (!r.ok) throw new Error(await readError(r));
-  return await r.json();
+export async function apiStats(symbol: string): Promise<StatsResponse> {
+  const r = await fetchNoStore(`/api/stats?symbol=${encodeURIComponent(symbol)}`);
+  if (!r.ok) throw new Error(`stats failed: ${r.status}${await readError(r)}`);
+  return (await r.json()) as StatsResponse;
 }
 
-export async function apiSync(symbol: string) {
-  const r = await fetch(`/api/sync?symbol=${encodeURIComponent(symbol)}`, { method: "POST" });
-  const text = await r.text().catch(() => "");
-  let j: any = {};
-  try { j = JSON.parse(text); } catch {}
-  if (!r.ok || !j.ok) throw new Error(j?.error ? String(j.error) : (text || "Sync failed"));
-  return j.result;
-}
-
-export async function apiBackfill(symbol: string, days = 30) {
-  const r = await fetch(`/api/backfill-background`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ symbol, days })
-  });
-  return await r.json().catch(() => ({}));
+export async function apiSync(symbol: string): Promise<{ ok: true; added: number; lastSeenId: number | null }> {
+  const r = await fetchNoStore(`/api/sync?symbol=${encodeURIComponent(symbol)}`);
+  if (!r.ok) throw new Error(`sync failed: ${r.status}${await readError(r)}`);
+  return (await r.json()) as { ok: true; added: number; lastSeenId: number | null };
 }
