@@ -10,7 +10,7 @@
 
   --good: rgba(75, 220, 145, 0.95);
   --bad: rgba(255, 92, 92, 0.95);
-  --neutral: rgba(255, 208, 92, 0.95);
+  --neutral: rgba(214, 220, 230, 0.95);
 
   --radius: 18px;
   --shadow: 0 10px 30px rgba(0,0,0,0.35);
@@ -94,6 +94,12 @@ a:hover{ text-decoration: underline; }
 }
 
 .dot{ opacity: 0.6; }
+
+
+.watchDelta{ font-weight: 850; }
+.watchDelta.up{ color: var(--good); }
+.watchDelta.down{ color: var(--bad); }
+.watchDelta.flat{ color: var(--muted); }
 
 .controls{
   display:flex;
@@ -312,7 +318,6 @@ a:hover{ text-decoration: underline; }
   background: rgba(255,255,255,0.05);
   font-weight: 900;
   font-size: 12px;
-  text-transform: lowercase;
 }
 .pill.inline{ height: 22px; padding: 0 8px; font-size: 12px; }
 
@@ -326,7 +331,6 @@ a:hover{ text-decoration: underline; }
 .sentLabel{
   font-size: 22px;
   font-weight: 950;
-  text-transform: lowercase;
 }
 .sentLabel.bull{ color: var(--good); }
 .sentLabel.bear{ color: var(--bad); }
@@ -725,7 +729,6 @@ a:hover{ text-decoration: underline; }
   font-size: 12px;
   font-weight: 950;
   color: rgba(255,255,255,0.78);
-  text-transform: lowercase;
 }
 .newsTime{
   font-size: 12px;
@@ -744,4 +747,49 @@ a:hover{ text-decoration: underline; }
   font-weight: 750;
   color: rgba(255,255,255,0.55);
   word-break: break-word;
+}
+
+
+/* Neutral sentiment should be white/grey */
+.metaItem.sentiment.neutral{ color: var(--neutral); }
+
+/* prevent long URLs/text from breaking modal layout */
+.modal .postBody,
+.modal .postLink,
+.modal .newsTitle,
+.modal .newsUrl,
+.modal .overviewMain,
+.modal .tldr,
+.modal .replyBody{
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.modal .post,
+.modal .newsItem{
+  max-width: 100%;
+}
+
+/* mobile header / controls */
+.headerRow{ width: 100%; }
+.brand{ min-width: 0 !important; flex: 1 1 auto; }
+.controls{ flex: 0 0 auto; }
+@media (max-width: 720px){
+  .headerRow{
+    flex-wrap: nowrap !important;
+    align-items: center !important;
+    gap: 8px !important;
+  }
+  .brandSub{
+    font-size: 15px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .brandMeta{ display: none; }
+  .tickerLabel{ display: none; }
+  .tickerButton{ min-width: 0; width: auto; padding: 0 8px; height: 40px; }
+  .tickerButtonText{ flex: 0 0 auto; }
+  .tickerName{ display: none; }
+  .tickerMenu{ width: min(320px, 92vw); right: 0; }
+  .refreshBtn{ height: 40px; padding: 0 10px; }
 }
