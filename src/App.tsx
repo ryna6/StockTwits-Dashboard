@@ -43,7 +43,7 @@ type Change = {
 
 function computeChange(series: number[], stepsBack: number, toOverride?: number): Change | null {
   if (!series.length && toOverride == null) return null;
-  const rawTo = toOverride ?? series[series.length - 1];
+  const to = toOverride ?? series[series.length - 1];
   const i = series.length - 1 - stepsBack;
   if (i < 0) return null;
   const rawFrom = series[i];
