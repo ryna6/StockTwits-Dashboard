@@ -7,23 +7,22 @@ import { hoursAgoDate, toUTCDateISO, addDays } from "./lib/time";
 import { loadSeries } from "./lib/aggregate";
 import { build24hSummary } from "./lib/summarize";
 import { fetchCompanyNews24h } from "./lib/finnhub";
+import { finalSentimentFrom, labelFromIndex } from "./lib/final-sentiment";
 
 function safeMsg(x: any): MessageLite | null {
   if (!x) return null;
-
-  const createdAt =
-    typeof x.createdAt === "string"
-      ? x.createdAt
-      : typeof x.created_at === "string"
-        ? x.created_at
-        : "";
+  const createdAt = typeof x.createdAt === "string" ? x.createdAt : typeof x.created_at === "string" ? x.created_at : "";
   if (!createdAt) return null;
 
   const user = x.user ?? {};
   const links = Array.isArray(x.links) ? x.links : [];
-
   const modelSent = x.modelSentiment ?? {};
   const spam = x.spam ?? {};
+
+  const stSentimentBasic = x.stSentimentBasic ?? null;
+  const userSentiment = (x.userSentiment ?? stSentimentBasic) ?? null;
+  const modelScore = Number(modelSent.score ?? 0);
+  const fallbackFinal = finalSentimentFrom(userSentiment, modelScore);
 
   return {
     id: Number(x.id ?? 0),
@@ -38,14 +37,17 @@ function safeMsg(x: any): MessageLite | null {
       joinDate: typeof user.joinDate === "string" ? user.joinDate : undefined,
       official: Boolean(user.official ?? false)
     },
-    stSentimentBasic: x.stSentimentBasic ?? null,
+    stSentimentBasic,
+    userSentiment,
     modelSentiment: {
-      score: Number(modelSent.score ?? 0),
-      label:
-        modelSent.label === "bull" || modelSent.label === "bear" || modelSent.label === "neutral"
-          ? modelSent.label
-          : "neutral"
+      score: modelScore,
+      label: modelSent.label === "bull" || modelSent.label === "bear" || modelSent.label === "neutral" ? modelSent.label : "neutral"
     },
+    finalSentimentIndex: typeof x.finalSentimentIndex === "number" ? x.finalSentimentIndex : fallbackFinal.finalSentimentIndex,
+    finalSentimentLabel:
+      x.finalSentimentLabel === "bull" || x.finalSentimentLabel === "bear" || x.finalSentimentLabel === "neutral"
+        ? x.finalSentimentLabel
+        : fallbackFinal.finalSentimentLabel,
     likes: Number(x.likes ?? 0),
     replies: Number(x.replies ?? 0),
     symbolsTagged: Array.isArray(x.symbolsTagged) ? x.symbolsTagged.map((s: any) => String(s).toUpperCase()) : [],
@@ -74,14 +76,6 @@ function asArrayMessages(v: any): MessageLite[] {
   return out;
 }
 
-function domainOf(url: string): string {
-  try {
-    return new URL(url).hostname.replace(/^www\./, "");
-  } catch {
-    return "unknown";
-  }
-}
-
 function comparePopular(a: MessageLite, b: MessageLite) {
   const al = a.likes ?? 0;
   const bl = b.likes ?? 0;
@@ -98,73 +92,12 @@ function comparePopular(a: MessageLite, b: MessageLite) {
   return (b.id ?? 0) - (a.id ?? 0);
 }
 
-function buildKeyLinks(clean: MessageLite[], maxLinks = 12) {
-  type LinkAgg = { url: string; title?: string; domain: string; count: number; lastSharedAt?: string };
-
-  const map = new Map<string, LinkAgg>();
-
-  for (const m of clean) {
-    if (!m.links || m.links.length === 0) continue;
-    const seen = new Set<string>();
-
-    for (const l of m.links) {
-      const url = String(l?.url ?? "").trim();
-      if (!url || seen.has(url)) continue;
-      seen.add(url);
-
-      const existing = map.get(url);
-      const createdAt = m.createdAt;
-
-      if (!existing) {
-        map.set(url, {
-          url,
-          title: l.title,
-          domain: domainOf(url),
-          count: 1,
-          lastSharedAt: createdAt
-        });
-      } else {
-        existing.count += 1;
-        if (!existing.title && l.title) existing.title = l.title;
-
-        if (!existing.lastSharedAt) {
-          existing.lastSharedAt = createdAt;
-        } else if (new Date(createdAt).getTime() > new Date(existing.lastSharedAt).getTime()) {
-          existing.lastSharedAt = createdAt;
-        }
-      }
-    }
-  }
-
-  return [...map.values()]
-    .sort((a, b) => {
-      if (b.count !== a.count) return b.count - a.count;
-      return new Date(b.lastSharedAt ?? 0).getTime() - new Date(a.lastSharedAt ?? 0).getTime();
-    })
-    .slice(0, maxLinks);
-}
-
-function computeWatchersDelta(
-  series: Awaited<ReturnType<typeof loadSeries>>,
-  today: string,
-  yesterday: string,
-  currentWatchers: number | null
-) {
+function computeWatchersDelta(series: Awaited<ReturnType<typeof loadSeries>>, today: string, yesterday: string, currentWatchers: number | null) {
   const todayWatchers = series.days?.[today]?.watchers ?? null;
   const prevWatchers = series.days?.[yesterday]?.watchers ?? null;
-
   const latest = todayWatchers ?? currentWatchers;
-  if (latest === null || prevWatchers === null) {
-    return { watchersDelta: null, watchersDeltaPct: null };
-  }
-
-  const watchersDelta = latest - prevWatchers;
-  const watchersDeltaPct = prevWatchers > 0 ? (watchersDelta / prevWatchers) * 100 : null;
-
-  return {
-    watchersDelta,
-    watchersDeltaPct: watchersDeltaPct === null ? null : Number(watchersDeltaPct.toFixed(2))
-  };
+  if (latest === null || prevWatchers === null) return { watchersDelta: null };
+  return { watchersDelta: latest - prevWatchers };
 }
 
 export default async (req: Request, _context: Context) => {
@@ -201,18 +134,16 @@ export default async (req: Request, _context: Context) => {
       fetchCompanyNews24h(symbol).catch(() => [])
     ]);
 
-    const tMsgs = asArrayMessages(tRaw);
-    const yMsgs = asArrayMessages(yRaw);
-
-    const combined = [...tMsgs, ...yMsgs]
+    const combined = [...asArrayMessages(tRaw), ...asArrayMessages(yRaw)]
       .filter((m) => new Date(m.createdAt).getTime() >= cutoffMs)
       .sort((a, b) => b.id - a.id);
 
     const total24h = combined.length;
     const clean = combined.filter((m) => (m.spam?.score ?? 0) < spamThreshold).map(enrich);
 
-    const sentimentScore = clean.length > 0 ? clean.reduce((acc, m) => acc + (m.modelSentiment?.score ?? 0), 0) / clean.length : 0;
-    const sentimentLabel = sentimentScore > 0.15 ? "bull" : sentimentScore < -0.15 ? "bear" : "neutral";
+    const finalIndices = clean.map((m) => (typeof m.finalSentimentIndex === "number" ? m.finalSentimentIndex : finalSentimentFrom(m.userSentiment, m.modelSentiment.score).finalSentimentIndex));
+    const sentimentScore = finalIndices.length > 0 ? finalIndices.reduce((a, b) => a + b, 0) / finalIndices.length : 50;
+    const sentimentLabel = labelFromIndex(sentimentScore);
 
     const series = await loadSeries(symbol);
     const prev = series.days?.[yesterday];
@@ -230,22 +161,16 @@ export default async (req: Request, _context: Context) => {
       .sort((a, b) => b.id - a.id)
       .slice(0, 25);
 
-    const keyLinks = buildKeyLinks(clean, 12);
-
-    const linksForSummary: { url: string; title?: string }[] = [];
-    for (const m of clean) for (const l of m.links) linksForSummary.push({ url: l.url, title: l.title });
-
-    const summary = build24hSummary({
-      symbol,
-      displayName: cfg.displayName,
-      cleanMessages: clean,
-      popular,
-      links: linksForSummary,
-      sentimentScore24h: sentimentScore,
-      vsPrevDay
-    }) as any;
-
-    summary.keyLinks = keyLinks;
+    let summary: DashboardResponse["summary24h"];
+    try {
+      summary = build24hSummary({ cleanMessages: clean, popular, highlights });
+    } catch {
+      summary = {
+        longSummary: "Nothing meaningful to recap in the past 24h (mostly generic reactions / low-signal posts).",
+        themes: [],
+        evidencePosts: []
+      };
+    }
 
     const state = await getJSON<any>(kState(symbol));
     const currentWatchers = typeof state?.lastWatchers === "number" ? state.lastWatchers : null;
@@ -260,20 +185,17 @@ export default async (req: Request, _context: Context) => {
       })
       .slice(0, 400);
 
-    const limitedNews24h = news24h.slice(0, 25);
-
     const out: DashboardResponse = {
       symbol,
       displayName: cfg.displayName,
       lastSyncAt: state?.lastSyncAt ?? null,
       watchers: currentWatchers,
       watchersDelta: watcherDelta.watchersDelta,
-      watchersDeltaPct: watcherDelta.watchersDeltaPct,
       sentiment24h: {
-        score: Number(sentimentScore.toFixed(4)),
+        score: Number(sentimentScore.toFixed(1)),
         label: sentimentLabel,
         sampleSize: clean.length,
-        vsPrevDay: vsPrevDay === null ? null : Number(vsPrevDay.toFixed(4))
+        vsPrevDay: vsPrevDay === null ? null : Number(vsPrevDay.toFixed(1))
       },
       volume24h: {
         clean: clean.length,
@@ -281,23 +203,19 @@ export default async (req: Request, _context: Context) => {
         buzzMultiple: buzzMultiple === null ? null : Number(buzzMultiple.toFixed(2))
       },
       summary24h: summary,
-      news24h: limitedNews24h,
+      news24h: news24h.slice(0, 25),
       posts24h,
       popularPosts24h: popular,
       highlightedPosts: highlights,
       preview: {
         topPost: popular[0] ?? null,
-        topHighlight: highlights[0] ?? null,
-        topLink: keyLinks[0] ? { url: keyLinks[0].url, title: keyLinks[0].title, domain: keyLinks[0].domain, count: keyLinks[0].count } : null
+        topHighlight: highlights[0] ?? null
       }
     };
 
     return new Response(JSON.stringify(out), {
       status: 200,
-      headers: {
-        "content-type": "application/json",
-        "cache-control": "public, max-age=15"
-      }
+      headers: { "content-type": "application/json", "cache-control": "public, max-age=15" }
     });
   } catch (e: any) {
     return new Response(JSON.stringify({ ok: false, error: String(e?.message ?? e) }), {

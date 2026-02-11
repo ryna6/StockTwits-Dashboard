@@ -818,3 +818,24 @@ a:hover{ text-decoration: underline; }
   .tickerMenu{ width: min(320px, 92vw); right: 0; }
   .refreshBtn{ height: 40px; padding: 0 10px; }
 }
+
+.metaItem.sentiment.bull{ color: var(--good); }
+.metaItem.sentiment.bear{ color: var(--bad); }
+.metaItem.sentiment.user.bull{ color: rgba(92, 234, 147, 0.95); }
+.metaItem.sentiment.user.bear{ color: rgba(255, 112, 112, 0.95); }
+.metaItem.sentiment.model{ opacity: 0.92; }
+
+.chartBlock{
+  height: 220px;
+  margin: 14px 0;
+  border-radius: 14px;
+  border: 1px solid rgba(255,255,255,0.10);
+  padding: 10px;
+  background: rgba(255,255,255,0.03);
+}
+.chartTitle{
+  font-size: 13px;
+  font-weight: 900;
+  color: rgba(255,255,255,0.78);
+  margin-bottom: 8px;
+}
