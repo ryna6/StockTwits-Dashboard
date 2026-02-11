@@ -36,15 +36,19 @@ export function extractWatchersFromMessages(symbol: string, messages: any[]): nu
   return null;
 }
 
+
 export type StockTwitsNewsResponse = {
   news?: any[];
   cursor?: { more?: boolean; max?: number; since?: number };
 };
 
-async function fetchNewsUrl(url: URL): Promise<StockTwitsNewsResponse> {
+export async function fetchSymbolNewsPage(symbol: string): Promise<StockTwitsNewsResponse> {
+  const url = new URL(`https://api.stocktwits.com/api/2/streams/symbol/${symbol}.json`);
+  url.searchParams.set("filter", "news");
+
   const res = await fetch(url.toString(), {
     headers: {
-      Accept: "application/json",
+      "Accept": "application/json",
       "User-Agent": "StockTwits Catalyst Dashboard (Netlify Functions)"
     }
   });
@@ -55,19 +59,4 @@ async function fetchNewsUrl(url: URL): Promise<StockTwitsNewsResponse> {
   }
 
   return (await res.json()) as StockTwitsNewsResponse;
-}
-
-export async function fetchSymbolNewsPage(symbol: string): Promise<StockTwitsNewsResponse> {
-  const sym = symbol.toUpperCase();
-
-  // Preferred endpoint for symbol News tab articles.
-  const primary = new URL(`https://api.stocktwits.com/api/2/symbols/${sym}/news.json`);
-  try {
-    return await fetchNewsUrl(primary);
-  } catch {
-    // Fallback endpoint observed in some environments.
-    const fallback = new URL(`https://api.stocktwits.com/api/2/streams/symbol/${sym}.json`);
-    fallback.searchParams.set("filter", "news");
-    return await fetchNewsUrl(fallback);
-  }
 }
