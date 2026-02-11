@@ -1,24 +1,25 @@
 import React from "react";
 import { timeAgo } from "../lib/format";
 
-type LinkItem = {
+type NewsItem = {
+  id: number;
   url: string;
-  title?: string;
-  domain?: string;
-  lastSharedAt?: string; // optional; backend can add later
+  title: string;
+  source: string;
+  publishedAt?: string;
 };
 
-export default function NewsList(props: { links: LinkItem[] | null | undefined }) {
+export default function NewsList(props: { links: NewsItem[] | null | undefined; unavailable?: boolean }) {
   const links = props.links ?? [];
-  if (!links.length) return <div className="muted">No links found.</div>;
+  if (!links.length) return <div className="muted">{props.unavailable ? "News unavailable." : "No news in the past 24h."}</div>;
 
   return (
     <div className="newsList">
       {links.map((l) => (
-        <a key={l.url} className="newsItem" href={l.url} target="_blank" rel="noreferrer">
+        <a key={l.id} className="newsItem" href={l.url} target="_blank" rel="noreferrer">
           <div className="newsSourceRow">
-            <div className="newsSource">{l.domain ?? "source"}</div>
-            {l.lastSharedAt ? <div className="newsTime">shared {timeAgo(l.lastSharedAt)}</div> : null}
+            <div className="newsSource">{l.source ?? "stocktwits"}</div>
+            {l.publishedAt ? <div className="newsTime">shared {timeAgo(l.publishedAt)}</div> : null}
           </div>
           <div className="newsTitle">{l.title ?? l.url}</div>
           <div className="newsUrl">{l.url}</div>

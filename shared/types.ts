@@ -38,6 +38,8 @@ export type DashboardResponse = {
   displayName: string;
   lastSyncAt?: string;
   watchers?: number | null;
+  watchersDelta?: number | null;
+  watchersDeltaPct?: number | null;
 
   sentiment24h: {
     score: number;
@@ -58,6 +60,15 @@ export type DashboardResponse = {
     evidencePosts: Pick<MessageLite, "id" | "createdAt" | "body" | "user" | "likes" | "replies" | "links">[];
     keyLinks: { url: string; title?: string; domain: string; count: number; lastSharedAt?: string }[];
   };
+
+  news24h: {
+    id: number;
+    title: string;
+    url: string;
+    source: string;
+    publishedAt?: string;
+  }[];
+  newsUnavailable?: boolean;
 
   posts24h: MessageLite[];
 
