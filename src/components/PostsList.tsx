@@ -40,13 +40,17 @@ function finalIndexForPost(p: any): number {
   const userSent = (p?.userSentiment ?? p?.stSentimentBasic ?? null) as "Bullish" | "Bearish" | null;
   const userIdx = userSentimentToIndex(userSent);
   const modelIdx = modelToIndex((p?.modelSentiment?.score as number | undefined) ?? null);
-  const hasModel = Number.isFinite(Number(p?.modelSentiment?.score));
 
-  if (userIdx !== null) {
-    if (!hasModel) return clamp(Math.round(userIdx), 0, 100);
-    return clamp(Math.round(0.75 * userIdx + 0.25 * modelIdx), 0, 100);
+  if (userIdx === null) return clamp(Math.round(modelIdx), 0, 100);
+
+  let candidate = userIdx;
+  if (modelIdx >= 60) {
+    candidate = userIdx + Math.round(0.25 * modelIdx);
+  } else if (modelIdx <= 40) {
+    candidate = userIdx - Math.round(0.25 * modelIdx);
   }
-  return clamp(Math.round(modelIdx), 0, 100);
+
+  return clamp(Math.round(candidate), 0, 100);
 }
 
 function userTagLabelForPost(p: any): "Bullish" | "Bearish" | "Neutral" {

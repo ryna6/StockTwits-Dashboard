@@ -32,7 +32,6 @@ function safeMsg(x: any): MessageLite | null {
   const sentimentTagLabel = userSentiment === "Bullish" || userSentiment === "Bearish" ? userSentiment : "Neutral";
   const modelScore = Number(modelSent.score ?? 0);
   const fallbackFinal = finalSentimentFrom(userSentiment, modelScore);
-  const normalizedStoredFinal = normalizeSentimentIndex(x.finalSentimentIndex);
 
   return {
     id: Number(x.id ?? 0),
@@ -54,7 +53,7 @@ function safeMsg(x: any): MessageLite | null {
       score: modelScore,
       label: modelSent.label === "bull" || modelSent.label === "bear" || modelSent.label === "neutral" ? modelSent.label : "neutral"
     },
-    finalSentimentIndex: normalizedStoredFinal ?? fallbackFinal.finalSentimentIndex,
+    finalSentimentIndex: fallbackFinal.finalSentimentIndex,
     finalSentimentLabel:
       x.finalSentimentLabel === "bull" || x.finalSentimentLabel === "bear" || x.finalSentimentLabel === "neutral"
         ? x.finalSentimentLabel
@@ -161,11 +160,15 @@ export default async (req: Request, _context: Context) => {
     const total24h = combined.length;
     const clean = combined.filter((m) => (m.spam?.score ?? 0) < spamThreshold).map(enrich);
 
-    const finalIndices = clean.map((m) => {
-      const normalized = normalizeSentimentIndex(m.finalSentimentIndex);
-      return normalized ?? finalSentimentFrom(m.userSentiment, m.modelSentiment.score).finalSentimentIndex;
+    const weightedFinal = clean.map((m) => {
+      const userTag = m.userSentiment ?? m.stSentimentBasic ?? null;
+      const finalIdx = finalSentimentFrom(userTag, m.modelSentiment.score).finalSentimentIndex;
+      const weight = userTag === "Bullish" || userTag === "Bearish" ? 3 : 1;
+      return { finalIdx, weight };
     });
-    const sentimentScoreRaw = finalIndices.length > 0 ? finalIndices.reduce((a, b) => a + b, 0) / finalIndices.length : 50;
+    const weightedSum = weightedFinal.reduce((acc, x) => acc + x.finalIdx * x.weight, 0);
+    const weightTotal = weightedFinal.reduce((acc, x) => acc + x.weight, 0);
+    const sentimentScoreRaw = weightTotal > 0 ? weightedSum / weightTotal : 50;
     const sentimentScore = Math.max(0, Math.min(100, Math.round(sentimentScoreRaw)));
     const sentimentLabel = labelFromIndex(sentimentScore);
 
@@ -190,7 +193,6 @@ export default async (req: Request, _context: Context) => {
       symbol,
       displayName: cfg.displayName,
       cleanMessages: clean,
-      popular,
       highlights,
       sentimentScore24h: sentimentScore,
       vsPrevDay

@@ -25,14 +25,19 @@ export function labelFromIndex(index: number): "bull" | "neutral" | "bear" {
 
 export function finalSentimentFrom(userTag: UserTagSentiment, modelScore: number | null | undefined) {
   const userIdx = userTagToIndex(userTag);
-  const hasModel = Number.isFinite(Number(modelScore));
   const modelIdx = modelScoreToIndex(modelScore);
-  const finalIndex =
-    userIdx === null
-      ? modelIdx
-      : hasModel
-        ? clamp(Math.round(0.75 * userIdx + 0.25 * modelIdx), 0, 100)
-        : userIdx;
+  const finalIndex = (() => {
+    if (userIdx === null) return modelIdx;
+
+    let candidate = userIdx;
+    if (modelIdx >= 60) {
+      candidate = userIdx + Math.round(0.25 * modelIdx);
+    } else if (modelIdx <= 40) {
+      candidate = userIdx - Math.round(0.25 * modelIdx);
+    }
+
+    return clamp(Math.round(candidate), 0, 100);
+  })();
 
   return {
     finalSentimentIndex: finalIndex,

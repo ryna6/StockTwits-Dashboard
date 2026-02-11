@@ -70,7 +70,6 @@ export function build24hSummary(args: {
   symbol: string;
   displayName?: string;
   cleanMessages: MessageLite[];
-  popular: MessageLite[];
   highlights: MessageLite[];
   sentimentScore24h: number;
   vsPrevDay: number | null;
