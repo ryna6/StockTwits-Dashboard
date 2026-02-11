@@ -37,8 +37,6 @@ function uniqueById(messages: MessageLite[]): MessageLite[] {
 }
 
 export function build24hSummary(args: {
-  symbol: string;
-  displayName: string;
   cleanMessages: MessageLite[];
   popular: MessageLite[];
   highlights: MessageLite[];
