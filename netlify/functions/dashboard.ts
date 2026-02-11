@@ -190,7 +190,6 @@ export default async (req: Request, _context: Context) => {
       symbol,
       displayName: cfg.displayName,
       cleanMessages: clean,
-      popular,
       highlights,
       sentimentScore24h: sentimentScore,
       vsPrevDay
