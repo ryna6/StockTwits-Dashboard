@@ -2,23 +2,50 @@ import type { MessageLite } from "../../../shared/types";
 
 type ThemeRule = { name: string; re: RegExp };
 
-const EMPTY_RECAP = "Nothing meaningful to recap in the past 24h (mostly generic reactions / low-signal posts).";
-
 const THEME_RULES: ThemeRule[] = [
-  { name: "Contracts/Awards", re: /\b(contract|contracts|award|awarded|order|orders|procurement|backlog|dod)\b/i },
+  { name: "Contracts/Awards", re: /\b(contract|contracts|award|awarded|order|orders|procurement|backlog|dod|army|navy|air force)\b/i },
   { name: "LOI/Partnership", re: /\b(loi|letter of intent|partnership|partner|collaboration|joint venture|strategic)\b/i },
-  { name: "Filings/PR", re: /\b(8-k|sec filing|filing|press release|pr)\b/i },
-  { name: "Offering/Dilution", re: /\b(offering|dilution|dilutive|atm|warrant|convertible|s-3)\b/i },
-  { name: "Compliance/Listing", re: /\b(nasdaq compliance|compliance|deficiency|reverse split|listing)\b/i },
-  { name: "Earnings/Guidance", re: /\b(earnings|guidance|revenue|eps|margin|outlook)\b/i },
+  { name: "Revenue/Guidance", re: /\b(revenue|guidance|forecast|outlook|eps|margin|profitability|bookings)\b/i },
+  { name: "Dilution/Offering", re: /\b(dilution|offering|atm|warrant|convertible|s-3)\b/i },
+  { name: "Listing/Compliance", re: /\b(nasdaq compliance|compliance|deficiency|reverse split|listing|uplist)\b/i },
+  { name: "Earnings", re: /\b(earnings|quarter|q1|q2|q3|q4|10-q|10-k)\b/i },
+  { name: "FDA/Clinical", re: /\b(fda|trial|phase [1-4]|pdufa|clinical|endpoint)\b/i },
   { name: "M&A", re: /\b(acquisition|acquire|merger|buyout)\b/i },
-  { name: "FDA/Trial", re: /\b(fda|trial|clinical|phase [1-4]|pdufa)\b/i }
+  { name: "Filings/PR", re: /\b(sec filing|8-k|press release|pr|filing)\b/i },
+  { name: "Price Target", re: /\b(price target|pt\b|target raise|target cut|upgrade|downgrade)\b/i }
 ];
 
-const GENERIC_RE = /\b(to the moon|moon|lfg|lets go|rocket|diamond hands|bagholder|wen|pump|send it|hodl)\b/i;
-const NUMBER_RE = /\$\d|\d+%|\b\d{1,4}(k|m|b|million|billion)?\b|\bq[1-4]\b|\b20\d{2}\b/i;
-const TICKER_STUFF_RE = /\$[A-Z]{1,5}/g;
-const HIGH_SIGNAL_DOMAINS = /(sec\.gov|globenewswire\.com|businesswire\.com|prnewswire\.com|fda\.gov|nasdaq\.com|investor\.|news\.)/i;
+function engagementScore(m: MessageLite): number {
+  return (m.likes ?? 0) * 2 + (m.replies ?? 0) * 3 + Math.log10((m.user?.followers ?? 0) + 10);
+}
+
+function sentenceFromPost(m: MessageLite): string {
+  const body = (m.body ?? "").replace(/\s+/g, " ").trim();
+  const short = body.length > 180 ? `${body.slice(0, 177)}...` : body;
+  return `@${m.user.username} noted: ${short || "(media-only post)"}.`;
+}
+
+function uniqueById(messages: MessageLite[]): MessageLite[] {
+  const seen = new Set<number>();
+  const out: MessageLite[] = [];
+  for (const m of messages) {
+    if (seen.has(m.id)) continue;
+    seen.add(m.id);
+    out.push(m);
+  }
+  return out;
+}
+
+export function build24hSummary(args: {
+  symbol: string;
+  displayName: string;
+  cleanMessages: MessageLite[];
+  popular: MessageLite[];
+  highlights: MessageLite[];
+  sentimentScore24h: number;
+  vsPrevDay: number | null;
+}) {
+  const msgs = args.cleanMessages.slice(0, 800);
 
 function topThemes(messages: MessageLite[]) {
   const counts: Record<string, number> = {};
@@ -33,67 +60,46 @@ function topThemes(messages: MessageLite[]) {
     .map(([name, count]) => ({ name, count }));
 }
 
-function infoScore(m: MessageLite, isKeyUser: boolean, popularIds: Set<number>) {
-  const body = m.body || "";
-  let score = 0;
-  if (NUMBER_RE.test(body)) score += 2;
-  if (THEME_RULES.some((t) => t.re.test(body))) score += 3;
-  if (m.links.some((l) => HIGH_SIGNAL_DOMAINS.test(l.url || ""))) score += 2;
-  if (isKeyUser) score += 3;
-  if (popularIds.has(m.id)) score += 2;
+  const direction = args.sentimentScore24h > 0.15 ? "bullish" : args.sentimentScore24h < -0.15 ? "bearish" : "mixed";
+  const deltaText =
+    typeof args.vsPrevDay === "number"
+      ? ` Versus the prior day, net sentiment moved ${args.vsPrevDay >= 0 ? "up" : "down"} by ${Math.abs(args.vsPrevDay).toFixed(2)}.`
+      : "";
 
-  const tickerMentions = (body.match(TICKER_STUFF_RE) ?? []).length;
-  if (tickerMentions >= 4) score -= 2;
-  if (GENERIC_RE.test(body)) score -= 2;
-  if (body.trim().length < 25) score -= 2;
-  if (m.spam?.normalizedHash) score -= 0.5;
+  const keyUsers = args.highlights
+    .slice()
+    .sort((a, b) => engagementScore(b) - engagementScore(a))
+    .slice(0, 2);
 
-  return score;
-}
+  const popular = args.popular.slice(0, 2);
+  const broader = args.cleanMessages
+    .slice()
+    .sort((a, b) => engagementScore(b) - engagementScore(a))
+    .slice(0, 2);
 
-export function build24hSummary(args: {
-  cleanMessages: MessageLite[];
-  popular: MessageLite[];
-  highlights: MessageLite[];
-}) {
-  const computedThemes = topThemes(args.cleanMessages);
-  const keyUserIds = new Set(args.highlights.map((m) => m.id));
-  const popularIds = new Set(args.popular.map((m) => m.id));
+  const evidence = uniqueById([...keyUsers, ...popular, ...broader]).slice(0, 6);
 
-  const scored = args.cleanMessages
-    .map((m) => ({ m, score: infoScore(m, keyUserIds.has(m.id), popularIds) }))
-    .sort((a, b) => b.score - a.score);
+  const sentences: string[] = [];
+  sentences.push(
+    `${args.symbol} chatter over the last 24 hours was ${direction} across ${args.cleanMessages.length} clean posts, weighted most heavily toward key users and high-engagement messages.${deltaText}`.trim()
+  );
 
-  const strong = scored.filter((x) => x.score >= 4);
-  const hasHighConfidenceCluster = args.highlights.some((m) => m.links?.length || (m.likes ?? 0) + (m.replies ?? 0) >= 8);
-
-  if (strong.length < 3 && !hasHighConfidenceCluster) {
-    return {
-      longSummary: EMPTY_RECAP,
-      themes: computedThemes,
-      evidencePosts: []
-    };
+  if (themes.length > 0) {
+    sentences.push(`Catalyst discussion centered on ${themes.slice(0, 3).map((t) => `${t.name} (${t.count})`).join(", ")}.`);
+  } else {
+    sentences.push("No single catalyst cluster dominated; discussion was broad and post-specific.");
   }
 
-  const primaryThread = computedThemes[0]?.name ?? "mixed catalyst talk";
-  const secondaryThread = computedThemes[1]?.name ?? "follow-up filings/compliance updates";
+  if (keyUsers.length > 0) sentences.push(`Key-user signal: ${sentenceFromPost(keyUsers[0])}`);
+  if (popular.length > 0) sentences.push(`High-engagement signal: ${sentenceFromPost(popular[0])}`);
+  if (broader.length > 0) sentences.push(`Broader-post signal: ${sentenceFromPost(broader[0])}`);
 
-  const longSummary = [
-    `Primary development in the last 24h: discussion clustered around ${primaryThread}, with multiple posts carrying concrete details instead of pure reaction chatter.`,
-    `Evidence quality is ${hasHighConfidenceCluster ? "moderate-to-strong" : "mixed"}: key-user/official coverage ${args.highlights.length > 0 ? "exists" : "is limited"}, and supporting posts include links or quant details in several cases.`,
-    `A secondary thread also formed around ${secondaryThread}, suggesting traders are tracking both near-term catalyst flow and financing/compliance context in parallel.`,
-    `What remains unclear: some claims are still unverified across independent sources, and timing specifics are inconsistent across posts.`,
-    `What to watch next: confirmation-style updates (filings/PR/company-linked posts) that validate the strongest claims and clarify timing.`
-  ].join(" ");
+  const longSummary = sentences.slice(0, 5).join(" ");
 
-  const evidencePosts = [
-    ...args.highlights.slice(0, 2),
-    ...args.popular.slice(0, 2),
-    ...strong.slice(0, 2).map((x) => x.m)
-  ]
-    .filter((m, i, arr) => arr.findIndex((x) => x.id === m.id) === i)
-    .slice(0, 6)
-    .map((m) => ({
+  return {
+    longSummary,
+    themes,
+    evidencePosts: evidence.map((m) => ({
       id: m.id,
       createdAt: m.createdAt,
       body: m.body,
@@ -101,11 +107,6 @@ export function build24hSummary(args: {
       likes: m.likes,
       replies: m.replies,
       links: m.links
-    }));
-
-  return {
-    longSummary,
-    themes: computedThemes,
-    evidencePosts
+    }))
   };
 }

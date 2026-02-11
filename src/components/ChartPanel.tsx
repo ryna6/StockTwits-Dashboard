@@ -9,15 +9,11 @@ export default function ChartPanel(props: { stats: StatsResponse | null }) {
   const s = props.stats;
   const points = Array.isArray(s?.points) ? s!.points : [];
 
-  if (!s || points.length === 0) {
-    return <div className="muted">No stats available yet. Refresh to sync data.</div>;
-  }
-
-  const labels = points.map((p) => p.date ?? "");
-  const vol = points.map((p) => Number(p?.volumeClean ?? 0));
-  const sent = points.map((p) => (typeof p?.sentimentMean === "number" ? Number(p.sentimentMean.toFixed(1)) : null));
-  const watchers = points.map((p) => (typeof p?.watchers === "number" ? p.watchers : null));
-  const close = points.map((p) => (typeof p?.priceClose === "number" ? p.priceClose : null));
+  const labels = s.points.map((p) => p.date);
+  const vol = s.points.map((p) => p.volumeClean);
+  const sent = s.points.map((p) => (p.sentimentMean === null ? null : Number((p.sentimentMean * 100).toFixed(1))));
+  const watchers = s.points.map((p) => (p.watchers === null ? null : p.watchers));
+  const close = s.points.map((p) => (p.priceClose === null ? null : p.priceClose));
 
   const commonOptions = {
     responsive: true,
@@ -32,7 +28,6 @@ export default function ChartPanel(props: { stats: StatsResponse | null }) {
   return (
     <div>
       <div className="muted" style={{ marginBottom: 10 }}>Daily points over the last 3 months.</div>
-      {!s.hasPrice ? <div className="muted" style={{ marginBottom: 10 }}>Price unavailable (showing stat series only).</div> : null}
 
       <div className="chartBlock">
         <div className="chartTitle">Watchers & Stock Price vs Time</div>
@@ -42,7 +37,9 @@ export default function ChartPanel(props: { stats: StatsResponse | null }) {
             labels,
             datasets: [
               { label: "Watchers", data: watchers as any, yAxisID: "y", borderWidth: 2.5, tension: 0.2, borderColor: "#84ccff", pointRadius: 0 },
-              ...(s.hasPrice ? [{ label: "Price Close", data: close as any, yAxisID: "y1", borderWidth: 1.5, tension: 0.2, borderColor: "#ffb347", pointRadius: 0 }] : [])
+              ...(s.hasPrice
+                ? [{ label: "Price Close", data: close as any, yAxisID: "y1", borderWidth: 1.5, tension: 0.2, borderColor: "#ffb347", pointRadius: 0 }]
+                : [])
             ]
           }}
           options={commonOptions}
@@ -57,7 +54,9 @@ export default function ChartPanel(props: { stats: StatsResponse | null }) {
             labels,
             datasets: [
               { label: "Messages (clean)", data: vol, yAxisID: "y", backgroundColor: "rgba(116, 186, 255, 0.45)", borderColor: "#74baff", borderWidth: 1 },
-              ...(s.hasPrice ? [{ label: "Price Close", data: close as any, type: "line" as const, yAxisID: "y1", borderWidth: 1.5, tension: 0.2, borderColor: "#ffb347", pointRadius: 0 }] : [])
+              ...(s.hasPrice
+                ? [{ label: "Price Close", data: close as any, type: "line" as const, yAxisID: "y1", borderWidth: 1.5, tension: 0.2, borderColor: "#ffb347", pointRadius: 0 }]
+                : [])
             ]
           }}
           options={{ ...commonOptions, scales: { ...commonOptions.scales, y: { beginAtZero: true } } }}
@@ -71,11 +70,13 @@ export default function ChartPanel(props: { stats: StatsResponse | null }) {
           data={{
             labels,
             datasets: [
-              { label: "Sentiment mean", data: sent as any, yAxisID: "y", borderWidth: 2.5, tension: 0.2, borderColor: "#8b7dff", pointRadius: 0 },
-              ...(s.hasPrice ? [{ label: "Price Close", data: close as any, yAxisID: "y1", borderWidth: 1.5, tension: 0.2, borderColor: "#ffb347", pointRadius: 0 }] : [])
+              { label: "Sentiment mean (index)", data: sent as any, yAxisID: "y", borderWidth: 2.5, tension: 0.2, borderColor: "#8b7dff", pointRadius: 0 },
+              ...(s.hasPrice
+                ? [{ label: "Price Close", data: close as any, yAxisID: "y1", borderWidth: 1.5, tension: 0.2, borderColor: "#ffb347", pointRadius: 0 }]
+                : [])
             ]
           }}
-          options={{ ...commonOptions, scales: { ...commonOptions.scales, y: { min: 0, max: 100 } } }}
+          options={{ ...commonOptions, scales: { ...commonOptions.scales, y: { min: -100, max: 100 } } }}
         />
       </div>
     </div>
