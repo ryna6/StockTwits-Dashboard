@@ -160,15 +160,18 @@ export default async (req: Request, _context: Context) => {
     const total24h = combined.length;
     const clean = combined.filter((m) => (m.spam?.score ?? 0) < spamThreshold).map(enrich);
 
-    const weightedFinal = clean.map((m) => {
+    const taggedSentimentPosts = clean.filter((m) => {
       const userTag = m.userSentiment ?? m.stSentimentBasic ?? null;
-      const finalIdx = finalSentimentFrom(userTag, m.modelSentiment.score).finalSentimentIndex;
-      const weight = userTag === "Bullish" || userTag === "Bearish" ? 3 : 1;
-      return { finalIdx, weight };
+      return userTag === "Bullish" || userTag === "Bearish";
     });
-    const weightedSum = weightedFinal.reduce((acc, x) => acc + x.finalIdx * x.weight, 0);
-    const weightTotal = weightedFinal.reduce((acc, x) => acc + x.weight, 0);
-    const sentimentScoreRaw = weightTotal > 0 ? weightedSum / weightTotal : 50;
+
+    const userTagIndices = taggedSentimentPosts.map((m) => {
+      const userTag = m.userSentiment ?? m.stSentimentBasic ?? null;
+      return userTag === "Bullish" ? 75 : 25;
+    });
+
+    const sentimentScoreRaw =
+      userTagIndices.length > 0 ? userTagIndices.reduce((acc, idx) => acc + idx, 0) / userTagIndices.length : 0;
     const sentimentScore = Math.max(0, Math.min(100, Math.round(sentimentScoreRaw)));
     const sentimentLabel = labelFromIndex(sentimentScore);
 
@@ -176,7 +179,7 @@ export default async (req: Request, _context: Context) => {
     const prev = series.days?.[yesterday];
     const prevMeanRaw = prev && prev.sentimentCountClean > 0 ? prev.sentimentSumClean / prev.sentimentCountClean : null;
     const prevMean = normalizeSentimentIndex(prevMeanRaw);
-    const vsPrevDay = prevMean === null ? null : Math.round(sentimentScore - prevMean);
+    const vsPrevDay = userTagIndices.length === 0 || prevMean === null ? null : Math.round(sentimentScore - prevMean);
 
     const sortedDates = Object.keys(series.days ?? {}).sort();
     const last20 = sortedDates.slice(-20);
@@ -224,7 +227,7 @@ export default async (req: Request, _context: Context) => {
         : null;
 
     console.log(
-      `[sentiment-debug] ${symbol} bullishTags=${bullishTagCount} bearishTags=${bearishTagCount} userTagMean=${userTagOnlyMean ?? "n/a"} finalIndex=${sentimentScore} sample=${clean.length}`
+      `[sentiment-debug] ${symbol} bullishTags=${bullishTagCount} bearishTags=${bearishTagCount} userTagMean=${userTagOnlyMean ?? "n/a"} finalIndex=${sentimentScore} sample=${userTagIndices.length}`
     );
 
     const out: DashboardResponse = {
@@ -236,7 +239,7 @@ export default async (req: Request, _context: Context) => {
       sentiment24h: {
         score: sentimentScore,
         label: sentimentLabel,
-        sampleSize: clean.length,
+        sampleSize: userTagIndices.length,
         vsPrevDay
       },
       volume24h: {
