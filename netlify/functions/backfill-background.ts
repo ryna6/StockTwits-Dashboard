@@ -66,6 +66,10 @@ function toLite(symbol: string, m: any, duplicateSymbolsCount: number, whitelist
       m?.entities?.sentiment?.basic === "Bullish" || m?.entities?.sentiment?.basic === "Bearish"
         ? m.entities.sentiment.basic
         : null,
+    userSentiment:
+      m?.entities?.sentiment?.basic === "Bullish" || m?.entities?.sentiment?.basic === "Bearish"
+        ? m.entities.sentiment.basic
+        : null,
     modelSentiment: ms,
     likes: Number(m?.likes?.total ?? 0),
     replies: Number(m?.conversation?.replies ?? 0),

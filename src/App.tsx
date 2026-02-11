@@ -94,7 +94,7 @@ export default function App() {
 
   const [dash, setDash] = useState<DashboardResponse | null>(null);
   const [stats, setStats] = useState<StatsResponse | null>(null);
-  const [range, setRange] = useState<30 | 90 | 365>(90);
+  const range = 90 as const;
 
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -215,12 +215,6 @@ export default function App() {
       .join(", ");
   }, [dash]);
 
-  const mostShared = useMemo(() => {
-    const l = dash?.summary24h?.keyLinks?.[0];
-    if (!l) return null;
-    return `${l.domain} — ${l.title ?? l.url}`;
-  }, [dash]);
-
   // ---- derive daily series deltas from stats (preferred baseline) ----
   const points = stats?.points ?? [];
 
@@ -309,7 +303,7 @@ export default function App() {
                       {" "}
                       ({dash.watchersDelta > 0 ? "+" : ""}
                       {fmtInt(dash.watchersDelta)}
-                      {dash.watchersDeltaPct != null ? `, ${dash.watchersDeltaPct > 0 ? "+" : ""}${dash.watchersDeltaPct.toFixed(2)}%` : ""})
+                      )
                     </span>
                   ) : null}
                 </span>
@@ -436,14 +430,9 @@ export default function App() {
             overview={
               <div className="overviewStack">
                 <div className="summaryOverview">
-                  <p>
-                    <span className="summaryLabel">Retail tone:</span> {labelText(dash.sentiment24h.label)} ({sentNowIdx})
-                  </p>
+                  <p>{dash.summary24h.longSummary}</p>
                   <p>
                     <span className="summaryLabel">Top themes:</span> {topThemesText}
-                  </p>
-                  <p>
-                    <span className="summaryLabel">Most shared link:</span> {mostShared ?? "—"}
                   </p>
                 </div>
                 {summarySentAt ? <div className="overviewStamp">sent {timeAgo(summarySentAt)}</div> : null}
@@ -452,15 +441,8 @@ export default function App() {
           >
 
             <div className="section">
-              <div className="sectionTitle">Retail tone</div>
-              <div className="tldr">
-                {labelText(dash.sentiment24h.label)} ({sentNowIdx}) · 24h sentiment (spam-filtered)
-              </div>
-            </div>
-
-            <div className="section">
-              <div className="sectionTitle">Most shared link</div>
-              <div className="tldr">{mostShared ?? "No links found."}</div>
+              <div className="sectionTitle">Summary (last 24h)</div>
+              <div className="tldr">{dash.summary24h.longSummary}</div>
             </div>
 
             <div className="section">
@@ -566,7 +548,7 @@ export default function App() {
               onToggle={() => setCollapsed((c) => ({ ...c, charts: !c.charts }))}
               overview={<div className="muted">Daily series + price overlay (if configured).</div>}
             >
-              <ChartPanel stats={stats} range={range} onRange={(r) => setRange(r)} />
+              <ChartPanel stats={stats} />
             </Card>
           </div>
         </main>

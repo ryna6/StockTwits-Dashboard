@@ -39,6 +39,7 @@ function safeMsg(x: any): MessageLite | null {
       official: Boolean(user.official ?? false)
     },
     stSentimentBasic: x.stSentimentBasic ?? null,
+    userSentiment: (x.userSentiment ?? x.stSentimentBasic) ?? null,
     modelSentiment: {
       score: Number(modelSent.score ?? 0),
       label:
@@ -74,14 +75,6 @@ function asArrayMessages(v: any): MessageLite[] {
   return out;
 }
 
-function domainOf(url: string): string {
-  try {
-    return new URL(url).hostname.replace(/^www\./, "");
-  } catch {
-    return "unknown";
-  }
-}
-
 function comparePopular(a: MessageLite, b: MessageLite) {
   const al = a.likes ?? 0;
   const bl = b.likes ?? 0;
@@ -98,52 +91,6 @@ function comparePopular(a: MessageLite, b: MessageLite) {
   return (b.id ?? 0) - (a.id ?? 0);
 }
 
-function buildKeyLinks(clean: MessageLite[], maxLinks = 12) {
-  type LinkAgg = { url: string; title?: string; domain: string; count: number; lastSharedAt?: string };
-
-  const map = new Map<string, LinkAgg>();
-
-  for (const m of clean) {
-    if (!m.links || m.links.length === 0) continue;
-    const seen = new Set<string>();
-
-    for (const l of m.links) {
-      const url = String(l?.url ?? "").trim();
-      if (!url || seen.has(url)) continue;
-      seen.add(url);
-
-      const existing = map.get(url);
-      const createdAt = m.createdAt;
-
-      if (!existing) {
-        map.set(url, {
-          url,
-          title: l.title,
-          domain: domainOf(url),
-          count: 1,
-          lastSharedAt: createdAt
-        });
-      } else {
-        existing.count += 1;
-        if (!existing.title && l.title) existing.title = l.title;
-
-        if (!existing.lastSharedAt) {
-          existing.lastSharedAt = createdAt;
-        } else if (new Date(createdAt).getTime() > new Date(existing.lastSharedAt).getTime()) {
-          existing.lastSharedAt = createdAt;
-        }
-      }
-    }
-  }
-
-  return [...map.values()]
-    .sort((a, b) => {
-      if (b.count !== a.count) return b.count - a.count;
-      return new Date(b.lastSharedAt ?? 0).getTime() - new Date(a.lastSharedAt ?? 0).getTime();
-    })
-    .slice(0, maxLinks);
-}
-
 function computeWatchersDelta(
   series: Awaited<ReturnType<typeof loadSeries>>,
   today: string,
@@ -155,16 +102,11 @@ function computeWatchersDelta(
 
   const latest = todayWatchers ?? currentWatchers;
   if (latest === null || prevWatchers === null) {
-    return { watchersDelta: null, watchersDeltaPct: null };
+    return { watchersDelta: null };
   }
 
   const watchersDelta = latest - prevWatchers;
-  const watchersDeltaPct = prevWatchers > 0 ? (watchersDelta / prevWatchers) * 100 : null;
-
-  return {
-    watchersDelta,
-    watchersDeltaPct: watchersDeltaPct === null ? null : Number(watchersDeltaPct.toFixed(2))
-  };
+  return { watchersDelta };
 }
 
 export default async (req: Request, _context: Context) => {
@@ -230,22 +172,15 @@ export default async (req: Request, _context: Context) => {
       .sort((a, b) => b.id - a.id)
       .slice(0, 25);
 
-    const keyLinks = buildKeyLinks(clean, 12);
-
-    const linksForSummary: { url: string; title?: string }[] = [];
-    for (const m of clean) for (const l of m.links) linksForSummary.push({ url: l.url, title: l.title });
-
     const summary = build24hSummary({
       symbol,
       displayName: cfg.displayName,
       cleanMessages: clean,
       popular,
-      links: linksForSummary,
+      highlights,
       sentimentScore24h: sentimentScore,
       vsPrevDay
-    }) as any;
-
-    summary.keyLinks = keyLinks;
+    });
 
     const state = await getJSON<any>(kState(symbol));
     const currentWatchers = typeof state?.lastWatchers === "number" ? state.lastWatchers : null;
@@ -268,7 +203,6 @@ export default async (req: Request, _context: Context) => {
       lastSyncAt: state?.lastSyncAt ?? null,
       watchers: currentWatchers,
       watchersDelta: watcherDelta.watchersDelta,
-      watchersDeltaPct: watcherDelta.watchersDeltaPct,
       sentiment24h: {
         score: Number(sentimentScore.toFixed(4)),
         label: sentimentLabel,
@@ -287,8 +221,7 @@ export default async (req: Request, _context: Context) => {
       highlightedPosts: highlights,
       preview: {
         topPost: popular[0] ?? null,
-        topHighlight: highlights[0] ?? null,
-        topLink: keyLinks[0] ? { url: keyLinks[0].url, title: keyLinks[0].title, domain: keyLinks[0].domain, count: keyLinks[0].count } : null
+        topHighlight: highlights[0] ?? null
       }
     };
 

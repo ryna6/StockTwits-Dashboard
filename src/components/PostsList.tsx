@@ -29,6 +29,12 @@ function sentimentToIndex(score: number) {
   return Math.round(((v + 1) / 2) * 100);
 }
 
+function userSentimentToIndex(sentiment?: "Bullish" | "Bearish" | null): number | null {
+  if (sentiment === "Bullish") return 75;
+  if (sentiment === "Bearish") return 25;
+  return null;
+}
+
 function openStockTwits(username: string, id: number) {
   window.open(`https://stocktwits.com/${encodeURIComponent(username)}/message/${id}`, "_blank");
 }
@@ -64,6 +70,9 @@ export default function PostsList(props: { posts: PostLike[]; emptyText: string 
         const msLabel = normalizeModelLabel((p as any)?.modelSentiment?.label);
         const msScoreNum = Number((p as any)?.modelSentiment?.score ?? 0);
         const msIdx = sentimentToIndex(msScoreNum);
+
+        const userSent = ((p as any)?.userSentiment ?? (p as any)?.stSentimentBasic ?? null) as "Bullish" | "Bearish" | null;
+        const usIdx = userSentimentToIndex(userSent);
 
         const likes = Number((p as any)?.likes ?? 0);
         const replies = Number((p as any)?.replies ?? 0);
@@ -127,9 +136,12 @@ export default function PostsList(props: { posts: PostLike[]; emptyText: string 
             <div className="postMeta">
               <span className="metaItem">❤ {likes}</span>
               <span className="metaItem">↩ {replies}</span>
-              <span className={"metaItem sentiment " + msLabel}>
-                {labelText(msLabel)} ({msIdx})
-              </span>
+              {usIdx !== null ? (
+                <span className={"metaItem sentiment user " + (userSent === "Bullish" ? "bull" : "bear")}>
+                  User: {userSent} ({usIdx})
+                </span>
+              ) : null}
+              <span className={"metaItem sentiment model " + msLabel}>Model: {labelText(msLabel)} ({msIdx})</span>
             </div>
 
             {Array.isArray((p as any)?.links) && (p as any).links.length ? (
