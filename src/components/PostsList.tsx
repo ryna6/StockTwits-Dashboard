@@ -17,9 +17,17 @@ function labelText(label: "bull" | "bear" | "neutral") {
   }
 }
 
+function labelFromIndex(index: number): "bull" | "bear" | "neutral" {
+  if (index >= 55) return "bull";
+  if (index <= 45) return "bear";
+  return "neutral";
+}
+
 function modelToIndex(score: number) {
-  const v = clamp(score, -1, 1);
-  return Math.round(((v + 1) / 2) * 100);
+  const s = Number(score);
+  if (!Number.isFinite(s)) return 50;
+  if (s >= 0 && s <= 100) return Math.round(s);
+  return clamp(Math.round(((clamp(s, -1, 1) + 1) / 2) * 100), 0, 100);
 }
 
 function userSentimentToIndex(sentiment?: "Bullish" | "Bearish" | null): number | null {
@@ -28,13 +36,22 @@ function userSentimentToIndex(sentiment?: "Bullish" | "Bearish" | null): number 
   return null;
 }
 
+function finalIndexForPost(p: any): number {
+  const userSent = (p?.userSentiment ?? p?.stSentimentBasic ?? null) as "Bullish" | "Bearish" | null;
+  const userIdx = userSentimentToIndex(userSent);
+  const modelIdx = modelToIndex(Number(p?.modelSentiment?.score ?? p?.finalSentimentIndex ?? 50));
+
+  if (userIdx !== null) return clamp(Math.round(0.7 * userIdx + 0.3 * modelIdx), 0, 100);
+  return clamp(Math.round(modelIdx), 0, 100);
+}
+
 function openStockTwits(username: string, id: number) {
   window.open(`https://stocktwits.com/${encodeURIComponent(username)}/message/${id}`, "_blank");
 }
 
 type PostLike = Partial<MessageLite> & {
   id: number;
-  user: { username: string; official?: boolean; displayName?: string };
+  user?: { username?: string; official?: boolean; displayName?: string };
   createdAt?: string;
   body?: string;
   replyTo?: {
@@ -46,19 +63,23 @@ type PostLike = Partial<MessageLite> & {
   replyToId?: number | null;
 };
 
-export default function PostsList(props: { posts: PostLike[]; emptyText: string }) {
-  if (!props.posts || props.posts.length === 0) return <div className="muted">{props.emptyText}</div>;
+export default function PostsList(props: { posts?: PostLike[]; emptyText: string }) {
+  const posts = Array.isArray(props.posts) ? props.posts : [];
+  if (posts.length === 0) return <div className="muted">{props.emptyText}</div>;
 
   return (
     <div className="posts">
-      {props.posts.map((p) => {
+      {posts.map((p) => {
         const username = p.user?.username ?? "unknown";
         const displayName = p.user?.displayName?.trim();
-        const spamScore = (p as any)?.spam?.score ?? 0;
+        const spamScore = Number((p as any)?.spam?.score ?? 0);
         const isSpam = spamScore >= 0.75;
 
         const finalIdx = finalIndexForPost(p as any);
-        const sentimentLabel = finalLabel(finalIdx);
+        const sentimentLabel = labelFromIndex(finalIdx);
+
+        const msIdx = modelToIndex(Number((p as any)?.modelSentiment?.score ?? 50));
+        const msLabel = labelFromIndex(msIdx);
 
         const userSent = ((p as any)?.userSentiment ?? (p as any)?.stSentimentBasic ?? null) as "Bullish" | "Bearish" | null;
         const usIdx = userSentimentToIndex(userSent);
@@ -121,6 +142,7 @@ export default function PostsList(props: { posts: PostLike[]; emptyText: string 
             <div className="postMeta">
               <span className="metaItem">❤ {likes}</span>
               <span className="metaItem">↩ {replies}</span>
+              <span className={"metaItem sentiment " + sentimentLabel}>Final: {labelText(sentimentLabel)} ({finalIdx})</span>
               {usIdx !== null ? (
                 <span className={"metaItem sentiment user " + (userSent === "Bullish" ? "bull" : "bear")}>
                   User: {userSent} ({usIdx})

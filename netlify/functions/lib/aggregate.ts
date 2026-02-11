@@ -21,10 +21,17 @@ type SeriesStore = {
   >;
 };
 
-function userSentimentToScore(v: MessageLite["userSentiment"]): number | null {
-  if (v === "Bullish") return 0.75;
-  if (v === "Bearish") return 0.25;
+function userSentimentToIndex(v: MessageLite["userSentiment"]): number | null {
+  if (v === "Bullish") return 75;
+  if (v === "Bearish") return 25;
   return null;
+}
+
+function finalIndexForMessage(m: MessageLite): number {
+  if (typeof m.finalSentimentIndex === "number" && Number.isFinite(m.finalSentimentIndex)) {
+    return Math.max(0, Math.min(100, Math.round(m.finalSentimentIndex)));
+  }
+  return finalSentimentFrom(m.userSentiment ?? m.stSentimentBasic, m.modelSentiment?.score ?? 0).finalSentimentIndex;
 }
 
 export async function loadSeries(symbol: string): Promise<SeriesStore> {
@@ -57,7 +64,7 @@ export async function updateSeries(symbol: string, newMessages: MessageLite[], w
       day.sentimentSumClean += finalIndexForMessage(m);
       day.sentimentCountClean += 1;
 
-      const us = userSentimentToScore(m.userSentiment ?? m.stSentimentBasic ?? null);
+      const us = userSentimentToIndex(m.userSentiment ?? m.stSentimentBasic ?? null);
       if (us !== null) {
         day.userSentimentSumClean += us;
         day.userSentimentCountClean += 1;
@@ -95,13 +102,11 @@ export async function updateSeries(symbol: string, newMessages: MessageLite[], w
 export function seriesToPoints(series: SeriesStore, dates: string[]) {
   return dates.map((date) => {
     const d = series.days[date];
-    const modelMean = d && d.sentimentCountClean > 0 ? d.sentimentSumClean / d.sentimentCountClean : null;
-    const userMeanRaw = d && d.userSentimentCountClean > 0 ? d.userSentimentSumClean / d.userSentimentCountClean : null;
-    const userMean = userMeanRaw === null ? null : (userMeanRaw - 0.5) * 2;
+    const combinedMean = d && d.sentimentCountClean > 0 ? d.sentimentSumClean / d.sentimentCountClean : null;
+    const userMean = d && d.userSentimentCountClean > 0 ? d.userSentimentSumClean / d.userSentimentCountClean : null;
 
-    let sentimentMean: number | null = modelMean;
-    if (modelMean !== null && userMean !== null) sentimentMean = modelMean * 0.7 + userMean * 0.3;
-    else if (modelMean === null && userMean !== null) sentimentMean = userMean;
+    let sentimentMean: number | null = combinedMean;
+    if (combinedMean === null && userMean !== null) sentimentMean = userMean;
 
     return {
       date,

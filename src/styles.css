@@ -839,3 +839,6 @@ a:hover{ text-decoration: underline; }
   color: rgba(255,255,255,0.78);
   margin-bottom: 8px;
 }
+
+.modalFallback{display:flex;flex-direction:column;gap:8px;padding:12px 2px;}
+.modalFallbackTitle{font-weight:700;}

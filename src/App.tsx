@@ -215,7 +215,7 @@ export default function App() {
   const sent1w = useMemo(() => computeChange(sentDailyIdx, 5), [sentDailyIdx]);
   const sent1m = useMemo(() => computeChange(sentDailyIdx, 21), [sentDailyIdx]);
 
-  const sentNowIdx = sentDailyIdx.length ? sentDailyIdx[sentDailyIdx.length - 1] : dash ? Math.round(dash.sentiment24h.score) : 50;
+  const sentNowIdx = sentDailyIdx.length ? Math.round(sentDailyIdx[sentDailyIdx.length - 1]) : dash ? Math.round(dash.sentiment24h.score) : 50;
 
   // volume daily series (clean)
   const volDaily = useMemo(() => {
@@ -310,7 +310,7 @@ export default function App() {
             }}
           >
             <TickerPicker value={symbol} options={tickers} onChange={setSymbol} compact />
-            <button className="refreshBtn" onClick={refreshNow} disabled={syncing || !symbol}>
+            <button className="refreshBtn" onClick={() => { void refreshNow(); }} disabled={syncing || !symbol}>
               {syncing ? "Syncing…" : "Refresh"}
             </button>
           </div>
@@ -417,7 +417,7 @@ export default function App() {
             overview={
               <div className="overviewStack">
                 <div className="summaryOverview">
-                  <p>{dash.summary24h.longSummary}</p>
+                  <p>{dash.summary24h?.longSummary ?? "No summary available yet."}</p>
                   <p>
                     <span className="summaryLabel">Top themes:</span> {topThemesText}
                   </p>
@@ -429,13 +429,13 @@ export default function App() {
 
             <div className="section">
               <div className="sectionTitle">Summary (last 24h)</div>
-              <div className="tldr">{dash.summary24h.longSummary}</div>
+              <div className="tldr">{dash.summary24h?.longSummary ?? "No summary available yet. Press Refresh to sync."}</div>
             </div>
 
             <div className="section">
               <div className="sectionTitle">Top themes</div>
               <div className="chips">
-                {dash.summary24h.themes.map((t) => (
+                {(dash.summary24h?.themes ?? []).map((t) => (
                   <span key={t.name} className="chip">
                     {t.name} · {t.count}
                   </span>
@@ -445,7 +445,7 @@ export default function App() {
 
             <div className="section">
               <div className="sectionTitle">Posts (last 24h)</div>
-              <PostsList posts={((dash as any)?.posts24h ?? dash.summary24h.evidencePosts) as any} emptyText="No posts found." />
+              <PostsList posts={(((dash as any)?.posts24h ?? dash.summary24h?.evidencePosts ?? []) as any[])} emptyText="No posts found." />
             </div>
           </Card>
 
@@ -474,7 +474,7 @@ export default function App() {
               </div>
             }
           >
-            <NewsList links={dash.news24h} />
+            <NewsList links={dash.news24h ?? []} />
           </Card>
 
           {/* POPULAR */}
@@ -485,11 +485,11 @@ export default function App() {
             overview={
               <div className="overviewStack">
                 <div className="overviewMain">
-                  {dash.preview.topPost ? (
+                  {dash.preview?.topPost ? (
                     <>
-                      <span className="mono">@{dash.preview.topPost.user.username}</span>:{" "}
-                      {dash.preview.topPost.body.slice(0, 160)}
-                      {dash.preview.topPost.body.length > 160 ? "…" : ""}
+                      <span className="mono">@{dash.preview?.topPost?.user?.username ?? "unknown"}</span>:{" "}
+                      {(dash.preview?.topPost?.body ?? "").slice(0, 160)}
+                      {(dash.preview?.topPost?.body ?? "").length > 160 ? "…" : ""}
                     </>
                   ) : (
                     <span className="muted">No popular posts.</span>
@@ -499,7 +499,7 @@ export default function App() {
               </div>
             }
           >
-            <PostsList posts={dash.popularPosts24h as any} emptyText="No popular posts in last 24h." />
+            <PostsList posts={(dash.popularPosts24h ?? []) as any} emptyText="No popular posts in last 24h." />
           </Card>
 
           {/* KEY USERS / HIGHLIGHTS */}
@@ -510,11 +510,11 @@ export default function App() {
             overview={
               <div className="overviewStack">
                 <div className="overviewMain">
-                  {dash.preview.topHighlight ? (
+                  {dash.preview?.topHighlight ? (
                     <>
-                      <span className="mono">@{dash.preview.topHighlight.user.username}</span>:{" "}
-                      {dash.preview.topHighlight.body.slice(0, 160)}
-                      {dash.preview.topHighlight.body.length > 160 ? "…" : ""}
+                      <span className="mono">@{dash.preview?.topHighlight?.user?.username ?? "unknown"}</span>:{" "}
+                      {(dash.preview?.topHighlight?.body ?? "").slice(0, 160)}
+                      {(dash.preview?.topHighlight?.body ?? "").length > 160 ? "…" : ""}
                     </>
                   ) : (
                     <span className="muted">No key-user posts.</span>
@@ -524,7 +524,7 @@ export default function App() {
               </div>
             }
           >
-            <PostsList posts={dash.highlightedPosts as any} emptyText="No key-user posts found." />
+            <PostsList posts={(dash.highlightedPosts ?? []) as any} emptyText="No key-user posts found." />
           </Card>
 
           {/* CHARTS */}
