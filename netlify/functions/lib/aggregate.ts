@@ -21,6 +21,13 @@ type SeriesStore = {
   >;
 };
 
+function normalizeIndexValue(value: number | null | undefined): number | null {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  if (n >= -1 && n <= 1) return Math.max(0, Math.min(100, Math.round(((n + 1) / 2) * 100)));
+  return Math.max(0, Math.min(100, Math.round(n)));
+}
+
 function userSentimentToIndex(v: MessageLite["userSentiment"]): number | null {
   if (v === "Bullish") return 75;
   if (v === "Bearish") return 25;
@@ -28,9 +35,8 @@ function userSentimentToIndex(v: MessageLite["userSentiment"]): number | null {
 }
 
 function finalIndexForMessage(m: MessageLite): number {
-  if (typeof m.finalSentimentIndex === "number" && Number.isFinite(m.finalSentimentIndex)) {
-    return Math.max(0, Math.min(100, Math.round(m.finalSentimentIndex)));
-  }
+  const normalizedStored = normalizeIndexValue(m.finalSentimentIndex);
+  if (normalizedStored !== null) return normalizedStored;
   return finalSentimentFrom(m.userSentiment ?? m.stSentimentBasic, m.modelSentiment?.score ?? 0).finalSentimentIndex;
 }
 
@@ -102,8 +108,11 @@ export async function updateSeries(symbol: string, newMessages: MessageLite[], w
 export function seriesToPoints(series: SeriesStore, dates: string[]) {
   return dates.map((date) => {
     const d = series.days[date];
-    const combinedMean = d && d.sentimentCountClean > 0 ? d.sentimentSumClean / d.sentimentCountClean : null;
-    const userMean = d && d.userSentimentCountClean > 0 ? d.userSentimentSumClean / d.userSentimentCountClean : null;
+    const combinedMeanRaw = d && d.sentimentCountClean > 0 ? d.sentimentSumClean / d.sentimentCountClean : null;
+    const userMeanRaw = d && d.userSentimentCountClean > 0 ? d.userSentimentSumClean / d.userSentimentCountClean : null;
+
+    const combinedMean = normalizeIndexValue(combinedMeanRaw);
+    const userMean = normalizeIndexValue(userMeanRaw);
 
     let sentimentMean: number | null = combinedMean;
     if (combinedMean === null && userMean !== null) sentimentMean = userMean;

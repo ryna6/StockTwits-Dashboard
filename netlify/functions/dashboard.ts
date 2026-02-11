@@ -7,7 +7,15 @@ import { hoursAgoDate, toUTCDateISO, addDays } from "./lib/time";
 import { loadSeries } from "./lib/aggregate";
 import { build24hSummary } from "./lib/summarize";
 import { fetchCompanyNews24h } from "./lib/finnhub";
-import { finalSentimentFrom, labelFromIndex } from "./lib/final-sentiment";
+import { finalSentimentFrom, labelFromIndex, modelScoreToIndex } from "./lib/final-sentiment";
+
+
+function normalizeSentimentIndex(value: number | null | undefined): number | null {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  if (n >= -1 && n <= 1) return modelScoreToIndex(n);
+  return Math.max(0, Math.min(100, Math.round(n)));
+}
 
 function safeMsg(x: any): MessageLite | null {
   if (!x) return null;
@@ -24,6 +32,7 @@ function safeMsg(x: any): MessageLite | null {
   const sentimentTagLabel = userSentiment === "Bullish" || userSentiment === "Bearish" ? userSentiment : "Neutral";
   const modelScore = Number(modelSent.score ?? 0);
   const fallbackFinal = finalSentimentFrom(userSentiment, modelScore);
+  const normalizedStoredFinal = normalizeSentimentIndex(x.finalSentimentIndex);
 
   return {
     id: Number(x.id ?? 0),
@@ -45,7 +54,7 @@ function safeMsg(x: any): MessageLite | null {
       score: modelScore,
       label: modelSent.label === "bull" || modelSent.label === "bear" || modelSent.label === "neutral" ? modelSent.label : "neutral"
     },
-    finalSentimentIndex: typeof x.finalSentimentIndex === "number" ? x.finalSentimentIndex : fallbackFinal.finalSentimentIndex,
+    finalSentimentIndex: normalizedStoredFinal ?? fallbackFinal.finalSentimentIndex,
     finalSentimentLabel:
       x.finalSentimentLabel === "bull" || x.finalSentimentLabel === "bear" || x.finalSentimentLabel === "neutral"
         ? x.finalSentimentLabel
@@ -152,15 +161,19 @@ export default async (req: Request, _context: Context) => {
     const total24h = combined.length;
     const clean = combined.filter((m) => (m.spam?.score ?? 0) < spamThreshold).map(enrich);
 
-    const finalIndices = clean.map((m) => (typeof m.finalSentimentIndex === "number" ? m.finalSentimentIndex : finalSentimentFrom(m.userSentiment, m.modelSentiment.score).finalSentimentIndex));
+    const finalIndices = clean.map((m) => {
+      const normalized = normalizeSentimentIndex(m.finalSentimentIndex);
+      return normalized ?? finalSentimentFrom(m.userSentiment, m.modelSentiment.score).finalSentimentIndex;
+    });
     const sentimentScoreRaw = finalIndices.length > 0 ? finalIndices.reduce((a, b) => a + b, 0) / finalIndices.length : 50;
     const sentimentScore = Math.max(0, Math.min(100, Math.round(sentimentScoreRaw)));
     const sentimentLabel = labelFromIndex(sentimentScore);
 
     const series = await loadSeries(symbol);
     const prev = series.days?.[yesterday];
-    const prevMean = prev && prev.sentimentCountClean > 0 ? prev.sentimentSumClean / prev.sentimentCountClean : null;
-    const vsPrevDay = prevMean === null ? null : sentimentScore - prevMean;
+    const prevMeanRaw = prev && prev.sentimentCountClean > 0 ? prev.sentimentSumClean / prev.sentimentCountClean : null;
+    const prevMean = normalizeSentimentIndex(prevMeanRaw);
+    const vsPrevDay = prevMean === null ? null : Math.round(sentimentScore - prevMean);
 
     const sortedDates = Object.keys(series.days ?? {}).sort();
     const last20 = sortedDates.slice(-20);
@@ -196,6 +209,22 @@ export default async (req: Request, _context: Context) => {
       })
       .slice(0, 400);
 
+    const bullishTagCount = clean.filter((m) => m.userSentiment === "Bullish" || m.stSentimentBasic === "Bullish").length;
+    const bearishTagCount = clean.filter((m) => m.userSentiment === "Bearish" || m.stSentimentBasic === "Bearish").length;
+    const userTagOnlyIndices: number[] = [];
+    for (const m of clean) {
+      if (m.userSentiment === "Bullish" || m.stSentimentBasic === "Bullish") userTagOnlyIndices.push(75);
+      else if (m.userSentiment === "Bearish" || m.stSentimentBasic === "Bearish") userTagOnlyIndices.push(25);
+    }
+    const userTagOnlyMean =
+      userTagOnlyIndices.length > 0
+        ? Math.round(userTagOnlyIndices.reduce((acc, v) => acc + v, 0) / userTagOnlyIndices.length)
+        : null;
+
+    console.log(
+      `[sentiment-debug] ${symbol} bullishTags=${bullishTagCount} bearishTags=${bearishTagCount} userTagMean=${userTagOnlyMean ?? "n/a"} finalIndex=${sentimentScore} sample=${clean.length}`
+    );
+
     const out: DashboardResponse = {
       symbol,
       displayName: cfg.displayName,
@@ -206,7 +235,7 @@ export default async (req: Request, _context: Context) => {
         score: sentimentScore,
         label: sentimentLabel,
         sampleSize: clean.length,
-        vsPrevDay: vsPrevDay === null ? null : Math.round(vsPrevDay)
+        vsPrevDay
       },
       volume24h: {
         clean: clean.length,
