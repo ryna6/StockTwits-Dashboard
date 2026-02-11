@@ -6,6 +6,7 @@ export default function TickerPicker(props: {
   value: string;
   options: Opt[];
   onChange: (v: string) => void;
+  compact?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement | null>(null);
@@ -46,7 +47,7 @@ export default function TickerPicker(props: {
 
         <div className="tickerButtonText">
           <div className="tickerSymbol">{selected?.symbol ?? props.value ?? "—"}</div>
-          <div className="tickerName">{selected?.displayName ?? ""}</div>
+          {!props.compact ? <div className="tickerName">{selected?.displayName ?? ""}</div> : null}
         </div>
 
         <div className="tickerChevron">▾</div>

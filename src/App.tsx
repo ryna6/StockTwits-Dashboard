@@ -139,12 +139,16 @@ export default function App() {
     }
   }
 
-  async function refreshNow() {
+  async function refreshNow(opts?: { hardReload?: boolean }) {
     if (!symbol) return;
     setSyncing(true);
     setErrorMsg(null);
     try {
       await apiSync(symbol);
+      if (opts?.hardReload) {
+        window.location.reload();
+        return;
+      }
       await loadAll(symbol, { includeStats: true });
     } catch (e: any) {
       setErrorMsg(String(e?.message ?? e));
@@ -196,9 +200,9 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [symbol]);
 
-  const headerLine = useMemo(() => {
-    if (!dash) return selectedTicker ? `${selectedTicker.symbol} — ${selectedTicker.displayName}` : symbol || "—";
-    return `${dash.symbol} — ${dash.displayName}`;
+  const companyName = useMemo(() => {
+    if (dash?.displayName) return dash.displayName;
+    return selectedTicker?.displayName ?? symbol ?? "—";
   }, [dash, selectedTicker, symbol]);
 
   const topThemesText = useMemo(() => {
@@ -249,7 +253,8 @@ export default function App() {
   const summarySentAt = (dash as any)?.posts24h?.[0]?.createdAt ?? dash?.summary24h?.evidencePosts?.[0]?.createdAt ?? null;
   const popularSentAt = dash?.preview?.topPost?.createdAt ?? null;
   const highlightsSentAt = dash?.preview?.topHighlight?.createdAt ?? null;
-  const newsSharedAt = (dash?.summary24h?.keyLinks?.[0] as any)?.lastSharedAt ?? null;
+  const topNews = dash?.news24h?.[0] ?? null;
+  const newsSharedAt = topNews?.publishedAt ?? null;
 
   return (
     <div className="app">
@@ -291,13 +296,23 @@ export default function App() {
                   }}
                 />
               ) : null}
-              <div className="brandSub">{headerLine}</div>
+              <div className="brandSub">{companyName}</div>
             </div>
 
             <div className="brandMeta">
               <span>Last sync: {dash?.lastSyncAt ? timeAgo(dash.lastSyncAt) : "—"}</span>
               <span className="dot">•</span>
-              <span>Watchers: {dash?.watchers != null ? fmtInt(dash.watchers) : "—"}</span>
+              <span>
+                  Watchers: {dash?.watchers != null ? fmtInt(dash.watchers) : "—"}
+                  {dash?.watchers != null && dash?.watchersDelta != null ? (
+                    <span className={"watchDelta " + (dash.watchersDelta > 0 ? "up" : dash.watchersDelta < 0 ? "down" : "flat")}>
+                      {" "}
+                      ({dash.watchersDelta > 0 ? "+" : ""}
+                      {fmtInt(dash.watchersDelta)}
+                      {dash.watchersDeltaPct != null ? `, ${dash.watchersDeltaPct > 0 ? "+" : ""}${dash.watchersDeltaPct.toFixed(2)}%` : ""})
+                    </span>
+                  ) : null}
+                </span>
             </div>
           </div>
 
@@ -313,8 +328,8 @@ export default function App() {
               marginLeft: "auto"
             }}
           >
-            <TickerPicker value={symbol} options={tickers} onChange={setSymbol} />
-            <button className="refreshBtn" onClick={refreshNow} disabled={syncing || !symbol}>
+            <TickerPicker value={symbol} options={tickers} onChange={setSymbol} compact />
+            <button className="refreshBtn" onClick={() => refreshNow({ hardReload: true })} disabled={syncing || !symbol}>
               {syncing ? "Syncing…" : "Refresh"}
             </button>
           </div>
@@ -473,20 +488,20 @@ export default function App() {
             overview={
               <div className="overviewStack">
                 <div className="overviewMain">
-                  {dash.summary24h.keyLinks?.[0] ? (
+                  {topNews ? (
                     <>
-                      <span className="newsMiniSource">{dash.summary24h.keyLinks[0].domain}</span>
-                      <span className="newsMiniTitle">{dash.summary24h.keyLinks[0].title ?? dash.summary24h.keyLinks[0].url}</span>
+                      <span className="newsMiniSource">{topNews.source}</span>
+                      <span className="newsMiniTitle">{topNews.title}</span>
                     </>
                   ) : (
-                    <span className="muted">No links found.</span>
+                    <span className="muted">{dash.newsUnavailable ? "News unavailable." : "No news in the past 24h."}</span>
                   )}
                 </div>
                 {newsSharedAt ? <div className="overviewStamp">shared {timeAgo(newsSharedAt)}</div> : null}
               </div>
             }
           >
-            <NewsList links={dash.summary24h.keyLinks as any} />
+            <NewsList links={dash.news24h as any} unavailable={Boolean(dash.newsUnavailable)} />
           </Card>
 
           {/* POPULAR */}
