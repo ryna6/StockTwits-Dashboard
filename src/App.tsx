@@ -43,17 +43,13 @@ type Change = {
 
 function computeChange(series: number[], stepsBack: number, toOverride?: number): Change | null {
   if (!series.length && toOverride == null) return null;
-  const rawCurrent = toOverride ?? series[series.length - 1];
-  const baselineIndex = series.length - 1 - stepsBack;
-  if (baselineIndex < 0) return null;
-  const rawPrevious = series[baselineIndex];
-
-  const current = Math.round(rawCurrent);
-  const previous = Math.round(rawPrevious);
-  const diff = Math.round(current - previous);
-  const pct = previous < 1 ? null : (diff / previous) * 100;
-
-  return { from: previous, to: current, diff, pct };
+  const to = toOverride ?? series[series.length - 1];
+  const i = series.length - 1 - stepsBack;
+  if (i < 0) return null;
+  const from = series[i];
+  const diff = to - from;
+  const pct = from === 0 ? null : (diff / from) * 100;
+  return { from, to, diff, pct };
 }
 
 function deltaClass(pct: number | null): string {
