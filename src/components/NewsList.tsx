@@ -9,9 +9,9 @@ type NewsItem = {
   publishedAt?: string;
 };
 
-export default function NewsList(props: { links: NewsItem[] | null | undefined; unavailable?: boolean }) {
+export default function NewsList(props: { links: NewsItem[] | null | undefined }) {
   const links = props.links ?? [];
-  if (!links.length) return <div className="muted">{props.unavailable ? "News unavailable." : "No news in the past 24h."}</div>;
+  if (!links.length) return <div className="muted">No news found.</div>;
 
   return (
     <div className="newsList">

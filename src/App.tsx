@@ -329,7 +329,7 @@ export default function App() {
             }}
           >
             <TickerPicker value={symbol} options={tickers} onChange={setSymbol} compact />
-            <button className="refreshBtn" onClick={() => refreshNow({ hardReload: true })} disabled={syncing || !symbol}>
+            <button className="refreshBtn" onClick={refreshNow} disabled={syncing || !symbol}>
               {syncing ? "Syncing…" : "Refresh"}
             </button>
           </div>
@@ -494,14 +494,14 @@ export default function App() {
                       <span className="newsMiniTitle">{topNews.title}</span>
                     </>
                   ) : (
-                    <span className="muted">{dash.newsUnavailable ? "News unavailable." : "No news in the past 24h."}</span>
+                    <span className="muted">No news found.</span>
                   )}
                 </div>
                 {newsSharedAt ? <div className="overviewStamp">shared {timeAgo(newsSharedAt)}</div> : null}
               </div>
             }
           >
-            <NewsList links={dash.news24h as any} unavailable={Boolean(dash.newsUnavailable)} />
+            <NewsList links={dash.news24h as any} />
           </Card>
 
           {/* POPULAR */}

@@ -68,7 +68,6 @@ export type DashboardResponse = {
     source: string;
     publishedAt?: string;
   }[];
-  newsUnavailable?: boolean;
 
   posts24h: MessageLite[];
 
