@@ -151,7 +151,8 @@ export default async (req: Request, _context: Context) => {
     const clean = combined.filter((m) => (m.spam?.score ?? 0) < spamThreshold).map(enrich);
 
     const finalIndices = clean.map((m) => (typeof m.finalSentimentIndex === "number" ? m.finalSentimentIndex : finalSentimentFrom(m.userSentiment, m.modelSentiment.score).finalSentimentIndex));
-    const sentimentScore = finalIndices.length > 0 ? finalIndices.reduce((a, b) => a + b, 0) / finalIndices.length : 50;
+    const sentimentScoreRaw = finalIndices.length > 0 ? finalIndices.reduce((a, b) => a + b, 0) / finalIndices.length : 50;
+    const sentimentScore = Math.max(0, Math.min(100, Math.round(sentimentScoreRaw)));
     const sentimentLabel = labelFromIndex(sentimentScore);
 
     const series = await loadSeries(symbol);
@@ -200,10 +201,10 @@ export default async (req: Request, _context: Context) => {
       watchers: currentWatchers,
       watchersDelta: watcherDelta.watchersDelta,
       sentiment24h: {
-        score: Number(sentimentScore.toFixed(1)),
+        score: sentimentScore,
         label: sentimentLabel,
         sampleSize: clean.length,
-        vsPrevDay: vsPrevDay === null ? null : Number(vsPrevDay.toFixed(1))
+        vsPrevDay: vsPrevDay === null ? null : Math.round(vsPrevDay)
       },
       volume24h: {
         clean: clean.length,

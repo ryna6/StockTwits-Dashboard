@@ -7,13 +7,19 @@ ChartJS.register(CategoryScale, LinearScale, BarElement, LineElement, PointEleme
 
 export default function ChartPanel(props: { stats: StatsResponse | null }) {
   const s = props.stats;
-  const points = Array.isArray(s?.points) ? s!.points : [];
+  const points = Array.isArray(s?.points) ? s.points : [];
 
-  const labels = s.points.map((p) => p.date);
-  const vol = s.points.map((p) => p.volumeClean);
-  const sent = s.points.map((p) => (p.sentimentMean === null ? null : Number((p.sentimentMean * 100).toFixed(1))));
-  const watchers = s.points.map((p) => (p.watchers === null ? null : p.watchers));
-  const close = s.points.map((p) => (p.priceClose === null ? null : p.priceClose));
+  if (!points.length) {
+    return <div className="muted">No stats available yet. Press Refresh to sync.</div>;
+  }
+
+  const labels = points.map((p) => p.date);
+  const vol = points.map((p) => p.volumeClean);
+  const sent = points.map((p) => (p.sentimentMean === null ? null : Math.max(0, Math.min(100, Math.round(p.sentimentMean)))));
+  const watchers = points.map((p) => (p.watchers === null ? null : p.watchers));
+  const close = points.map((p) => (p.priceClose === null ? null : p.priceClose));
+
+  const hasPrice = Boolean(s?.hasPrice);
 
   const commonOptions = {
     responsive: true,
@@ -37,7 +43,7 @@ export default function ChartPanel(props: { stats: StatsResponse | null }) {
             labels,
             datasets: [
               { label: "Watchers", data: watchers as any, yAxisID: "y", borderWidth: 2.5, tension: 0.2, borderColor: "#84ccff", pointRadius: 0 },
-              ...(s.hasPrice
+              ...(hasPrice
                 ? [{ label: "Price Close", data: close as any, yAxisID: "y1", borderWidth: 1.5, tension: 0.2, borderColor: "#ffb347", pointRadius: 0 }]
                 : [])
             ]
@@ -54,7 +60,7 @@ export default function ChartPanel(props: { stats: StatsResponse | null }) {
             labels,
             datasets: [
               { label: "Messages (clean)", data: vol, yAxisID: "y", backgroundColor: "rgba(116, 186, 255, 0.45)", borderColor: "#74baff", borderWidth: 1 },
-              ...(s.hasPrice
+              ...(hasPrice
                 ? [{ label: "Price Close", data: close as any, type: "line" as const, yAxisID: "y1", borderWidth: 1.5, tension: 0.2, borderColor: "#ffb347", pointRadius: 0 }]
                 : [])
             ]
@@ -71,12 +77,12 @@ export default function ChartPanel(props: { stats: StatsResponse | null }) {
             labels,
             datasets: [
               { label: "Sentiment mean (index)", data: sent as any, yAxisID: "y", borderWidth: 2.5, tension: 0.2, borderColor: "#8b7dff", pointRadius: 0 },
-              ...(s.hasPrice
+              ...(hasPrice
                 ? [{ label: "Price Close", data: close as any, yAxisID: "y1", borderWidth: 1.5, tension: 0.2, borderColor: "#ffb347", pointRadius: 0 }]
                 : [])
             ]
           }}
-          options={{ ...commonOptions, scales: { ...commonOptions.scales, y: { min: -100, max: 100 } } }}
+          options={{ ...commonOptions, scales: { ...commonOptions.scales, y: { min: 0, max: 100 } } }}
         />
       </div>
     </div>

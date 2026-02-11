@@ -1,4 +1,5 @@
 import React, { useEffect } from "react";
+import ModalErrorBoundary from "./ModalErrorBoundary";
 
 export default function Card(props: {
   title: string;
@@ -22,7 +23,6 @@ export default function Card(props: {
 
   return (
     <>
-      {/* Base card always stays compact (no in-place expanding) */}
       <section className="card">
         <div className="cardHead" onClick={props.onToggle} role="button" tabIndex={0}>
           <div className="cardHeadLeft">
@@ -41,7 +41,6 @@ export default function Card(props: {
         <div className="cardOverview">{props.overview}</div>
       </section>
 
-      {/* Modal popup when expanded */}
       {isOpen ? (
         <div className="modalBackdrop" onMouseDown={props.onToggle}>
           <div className="modal" role="dialog" aria-modal="true" onMouseDown={(e) => e.stopPropagation()}>
@@ -59,7 +58,9 @@ export default function Card(props: {
               </button>
             </div>
 
-            <div className="modalBody">{props.children}</div>
+            <div className="modalBody">
+              <ModalErrorBoundary onClose={props.onToggle}>{props.children}</ModalErrorBoundary>
+            </div>
           </div>
         </div>
       ) : null}
