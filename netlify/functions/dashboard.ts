@@ -21,6 +21,7 @@ function safeMsg(x: any): MessageLite | null {
 
   const stSentimentBasic = x.stSentimentBasic ?? null;
   const userSentiment = (x.userSentiment ?? stSentimentBasic) ?? null;
+  const sentimentTagLabel = userSentiment === "Bullish" || userSentiment === "Bearish" ? userSentiment : "Neutral";
   const modelScore = Number(modelSent.score ?? 0);
   const fallbackFinal = finalSentimentFrom(userSentiment, modelScore);
 
@@ -39,6 +40,7 @@ function safeMsg(x: any): MessageLite | null {
     },
     stSentimentBasic: x.stSentimentBasic ?? null,
     userSentiment: (x.userSentiment ?? x.stSentimentBasic) ?? null,
+    sentimentTagLabel,
     modelSentiment: {
       score: modelScore,
       label: modelSent.label === "bull" || modelSent.label === "bear" || modelSent.label === "neutral" ? modelSent.label : "neutral"
