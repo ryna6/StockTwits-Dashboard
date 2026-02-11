@@ -23,10 +23,6 @@ const TITLES = {
 };
 // ================================================================
 
-function clamp(n: number, lo: number, hi: number) {
-  return Math.max(lo, Math.min(hi, n));
-}
-
 function labelText(label: "bull" | "bear" | "neutral") {
   switch (label) {
     case "bull":
@@ -36,12 +32,6 @@ function labelText(label: "bull" | "bear" | "neutral") {
     default:
       return "Neutral";
   }
-}
-
-// Map [-1..+1] to [0..100], 50 neutral
-function sentimentToIndex(score: number) {
-  const s = Number.isFinite(score) ? score : 0;
-  return clamp(Math.round((s + 1) * 50), 0, 100);
 }
 
 type Change = {
@@ -94,7 +84,7 @@ export default function App() {
 
   const [dash, setDash] = useState<DashboardResponse | null>(null);
   const [stats, setStats] = useState<StatsResponse | null>(null);
-  const [range, setRange] = useState<30 | 90 | 365>(90);
+  const range = 90 as const;
 
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -215,26 +205,17 @@ export default function App() {
       .join(", ");
   }, [dash]);
 
-  const mostShared = useMemo(() => {
-    const l = dash?.summary24h?.keyLinks?.[0];
-    if (!l) return null;
-    return `${l.domain} — ${l.title ?? l.url}`;
-  }, [dash]);
-
   // ---- derive daily series deltas from stats (preferred baseline) ----
   const points = stats?.points ?? [];
 
   // sentiment daily series (0..100 index)
-  const sentDailyIdx = useMemo(() => {
-    const raw = lastNonNull(points as any[], (p: any) => p.sentimentMean);
-    return raw.map((s) => sentimentToIndex(Number(s)));
-  }, [points]);
+  const sentDailyIdx = useMemo(() => lastNonNull(points as any[], (p: any) => p.sentimentMean), [points]);
 
   const sent1d = useMemo(() => computeChange(sentDailyIdx, 1), [sentDailyIdx]);
   const sent1w = useMemo(() => computeChange(sentDailyIdx, 5), [sentDailyIdx]);
   const sent1m = useMemo(() => computeChange(sentDailyIdx, 21), [sentDailyIdx]);
 
-  const sentNowIdx = sentDailyIdx.length ? sentDailyIdx[sentDailyIdx.length - 1] : dash ? sentimentToIndex(dash.sentiment24h.score) : 50;
+  const sentNowIdx = sentDailyIdx.length ? sentDailyIdx[sentDailyIdx.length - 1] : dash ? Math.round(dash.sentiment24h.score) : 50;
 
   // volume daily series (clean)
   const volDaily = useMemo(() => {
@@ -309,7 +290,7 @@ export default function App() {
                       {" "}
                       ({dash.watchersDelta > 0 ? "+" : ""}
                       {fmtInt(dash.watchersDelta)}
-                      {dash.watchersDeltaPct != null ? `, ${dash.watchersDeltaPct > 0 ? "+" : ""}${dash.watchersDeltaPct.toFixed(2)}%` : ""})
+                      )
                     </span>
                   ) : null}
                 </span>
@@ -436,14 +417,9 @@ export default function App() {
             overview={
               <div className="overviewStack">
                 <div className="summaryOverview">
-                  <p>
-                    <span className="summaryLabel">Retail tone:</span> {labelText(dash.sentiment24h.label)} ({sentNowIdx})
-                  </p>
+                  <p>{dash.summary24h.longSummary}</p>
                   <p>
                     <span className="summaryLabel">Top themes:</span> {topThemesText}
-                  </p>
-                  <p>
-                    <span className="summaryLabel">Most shared link:</span> {mostShared ?? "—"}
                   </p>
                 </div>
                 {summarySentAt ? <div className="overviewStamp">sent {timeAgo(summarySentAt)}</div> : null}
@@ -452,15 +428,8 @@ export default function App() {
           >
 
             <div className="section">
-              <div className="sectionTitle">Retail tone</div>
-              <div className="tldr">
-                {labelText(dash.sentiment24h.label)} ({sentNowIdx}) · 24h sentiment (spam-filtered)
-              </div>
-            </div>
-
-            <div className="section">
-              <div className="sectionTitle">Most shared link</div>
-              <div className="tldr">{mostShared ?? "No links found."}</div>
+              <div className="sectionTitle">Summary (last 24h)</div>
+              <div className="tldr">{dash.summary24h.longSummary}</div>
             </div>
 
             <div className="section">
@@ -566,7 +535,7 @@ export default function App() {
               onToggle={() => setCollapsed((c) => ({ ...c, charts: !c.charts }))}
               overview={<div className="muted">Daily series + price overlay (if configured).</div>}
             >
-              <ChartPanel stats={stats} range={range} onRange={(r) => setRange(r)} />
+              <ChartPanel stats={stats} />
             </Card>
           </div>
         </main>

@@ -6,6 +6,7 @@ import type { MessageLite } from "../../shared/types";
 import { TICKER_MAP } from "../../shared/tickers";
 import { toUTCDateISO } from "./lib/time";
 import { modelSentiment } from "./lib/sentiment";
+import { finalSentimentFrom } from "./lib/final-sentiment";
 import { normalizedHash, updateDuplicateState, spamScore, countCashtags, countTokens } from "./lib/spam";
 import { updateSeries } from "./lib/aggregate";
 
@@ -40,6 +41,12 @@ function toLite(symbol: string, m: any, duplicateSymbolsCount: number, whitelist
 
   const ms = hasMedia && !body ? { score: 0, label: "neutral" as const } : modelSentiment(body);
 
+  const stSentimentBasic =
+    m?.entities?.sentiment?.basic === "Bullish" || m?.entities?.sentiment?.basic === "Bearish"
+      ? m.entities.sentiment.basic
+      : null;
+  const finalSent = finalSentimentFrom(stSentimentBasic, ms.score);
+
   const linksRaw = Array.isArray(m?.links) ? m.links : [];
   const links = linksRaw
     .map((l: any) => ({
@@ -62,11 +69,11 @@ function toLite(symbol: string, m: any, duplicateSymbolsCount: number, whitelist
       joinDate,
       official: Boolean(user?.official)
     },
-    stSentimentBasic:
-      m?.entities?.sentiment?.basic === "Bullish" || m?.entities?.sentiment?.basic === "Bearish"
-        ? m.entities.sentiment.basic
-        : null,
+    stSentimentBasic,
+    userSentiment: stSentimentBasic,
     modelSentiment: ms,
+    finalSentimentIndex: finalSent.finalSentimentIndex,
+    finalSentimentLabel: finalSent.finalSentimentLabel,
     likes: Number(m?.likes?.total ?? 0),
     replies: Number(m?.conversation?.replies ?? 0),
     symbolsTagged,
@@ -134,7 +141,6 @@ export default async (req: Request, _context: Context) => {
       pages += 1;
     }
 
-    // write to day blobs
     const buckets = new Map<string, MessageLite[]>();
     for (const m of stored) {
       const day = toUTCDateISO(new Date(m.createdAt));
