@@ -27,6 +27,8 @@ export type MessageLite = {
   stSentimentBasic?: "Bullish" | "Bearish" | null;
   userSentiment?: "Bullish" | "Bearish" | null;
   modelSentiment: { score: number; label: "bull" | "neutral" | "bear" };
+  finalSentimentIndex?: number;
+  finalSentimentLabel?: "bull" | "neutral" | "bear";
   likes: number;
   replies: number;
   symbolsTagged: string[];

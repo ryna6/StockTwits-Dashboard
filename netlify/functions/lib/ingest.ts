@@ -5,6 +5,7 @@ import { getJSON, setJSON, delKey, kState, kMsgs, kLock } from "./blobs";
 import { envInt, envFloat } from "./validate";
 import { toUTCDateISO, nowISO } from "./time";
 import { modelSentiment } from "./sentiment";
+import { finalSentimentFrom } from "./final-sentiment";
 import { normalizedHash, updateDuplicateState, spamScore, countCashtags, countTokens } from "./spam";
 import { updateSeries } from "./aggregate";
 
@@ -73,6 +74,8 @@ function toLite(symbol: string, m: any, duplicateSymbolsCount: number, whitelist
   const stSentimentBasic =
     stBasic === "Bullish" || stBasic === "Bearish" ? (stBasic as "Bullish" | "Bearish") : null;
 
+  const finalSent = finalSentimentFrom(stSentimentBasic, ms.score);
+
   const linksRaw = Array.isArray(m?.links) ? m.links : [];
   const links = linksRaw
     .map((l: any) => ({
@@ -98,6 +101,8 @@ function toLite(symbol: string, m: any, duplicateSymbolsCount: number, whitelist
     stSentimentBasic,
     userSentiment: stSentimentBasic,
     modelSentiment: ms,
+    finalSentimentIndex: finalSent.finalSentimentIndex,
+    finalSentimentLabel: finalSent.finalSentimentLabel,
     likes,
     replies,
     symbolsTagged,

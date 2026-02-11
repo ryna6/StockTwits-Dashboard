@@ -7,7 +7,7 @@ ChartJS.register(CategoryScale, LinearScale, BarElement, LineElement, PointEleme
 
 export default function ChartPanel(props: { stats: StatsResponse | null }) {
   const s = props.stats;
-  if (!s) return <div className="muted">Loading charts…</div>;
+  const points = Array.isArray(s?.points) ? s!.points : [];
 
   const labels = s.points.map((p) => p.date);
   const vol = s.points.map((p) => p.volumeClean);

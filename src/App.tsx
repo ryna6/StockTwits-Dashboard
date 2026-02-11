@@ -23,10 +23,6 @@ const TITLES = {
 };
 // ================================================================
 
-function clamp(n: number, lo: number, hi: number) {
-  return Math.max(lo, Math.min(hi, n));
-}
-
 function labelText(label: "bull" | "bear" | "neutral") {
   switch (label) {
     case "bull":
@@ -36,12 +32,6 @@ function labelText(label: "bull" | "bear" | "neutral") {
     default:
       return "Neutral";
   }
-}
-
-// Map [-1..+1] to [0..100], 50 neutral
-function sentimentToIndex(score: number) {
-  const s = Number.isFinite(score) ? score : 0;
-  return clamp(Math.round((s + 1) * 50), 0, 100);
 }
 
 type Change = {
@@ -219,16 +209,13 @@ export default function App() {
   const points = stats?.points ?? [];
 
   // sentiment daily series (0..100 index)
-  const sentDailyIdx = useMemo(() => {
-    const raw = lastNonNull(points as any[], (p: any) => p.sentimentMean);
-    return raw.map((s) => sentimentToIndex(Number(s)));
-  }, [points]);
+  const sentDailyIdx = useMemo(() => lastNonNull(points as any[], (p: any) => p.sentimentMean), [points]);
 
   const sent1d = useMemo(() => computeChange(sentDailyIdx, 1), [sentDailyIdx]);
   const sent1w = useMemo(() => computeChange(sentDailyIdx, 5), [sentDailyIdx]);
   const sent1m = useMemo(() => computeChange(sentDailyIdx, 21), [sentDailyIdx]);
 
-  const sentNowIdx = sentDailyIdx.length ? sentDailyIdx[sentDailyIdx.length - 1] : dash ? sentimentToIndex(dash.sentiment24h.score) : 50;
+  const sentNowIdx = sentDailyIdx.length ? sentDailyIdx[sentDailyIdx.length - 1] : dash ? Math.round(dash.sentiment24h.score) : 50;
 
   // volume daily series (clean)
   const volDaily = useMemo(() => {

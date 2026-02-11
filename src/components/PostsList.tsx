@@ -6,13 +6,6 @@ function clamp(n: number, lo: number, hi: number) {
   return Math.max(lo, Math.min(hi, n));
 }
 
-function normalizeModelLabel(label: any): "bull" | "bear" | "neutral" {
-  const raw = String(label ?? "neutral").toLowerCase();
-  if (raw === "bull" || raw === "bullish") return "bull";
-  if (raw === "bear" || raw === "bearish") return "bear";
-  return "neutral";
-}
-
 function labelText(label: "bull" | "bear" | "neutral") {
   switch (label) {
     case "bull":
@@ -24,7 +17,7 @@ function labelText(label: "bull" | "bear" | "neutral") {
   }
 }
 
-function sentimentToIndex(score: number) {
+function modelToIndex(score: number) {
   const v = clamp(score, -1, 1);
   return Math.round(((v + 1) / 2) * 100);
 }
@@ -54,32 +47,26 @@ type PostLike = Partial<MessageLite> & {
 };
 
 export default function PostsList(props: { posts: PostLike[]; emptyText: string }) {
-  if (!props.posts || props.posts.length === 0) {
-    return <div className="muted">{props.emptyText}</div>;
-  }
+  if (!props.posts || props.posts.length === 0) return <div className="muted">{props.emptyText}</div>;
 
   return (
     <div className="posts">
       {props.posts.map((p) => {
         const username = p.user?.username ?? "unknown";
         const displayName = p.user?.displayName?.trim();
-
         const spamScore = (p as any)?.spam?.score ?? 0;
         const isSpam = spamScore >= 0.75;
 
-        const msLabel = normalizeModelLabel((p as any)?.modelSentiment?.label);
-        const msScoreNum = Number((p as any)?.modelSentiment?.score ?? 0);
-        const msIdx = sentimentToIndex(msScoreNum);
+        const finalIdx = finalIndexForPost(p as any);
+        const sentimentLabel = finalLabel(finalIdx);
 
         const userSent = ((p as any)?.userSentiment ?? (p as any)?.stSentimentBasic ?? null) as "Bullish" | "Bearish" | null;
         const usIdx = userSentimentToIndex(userSent);
 
         const likes = Number((p as any)?.likes ?? 0);
         const replies = Number((p as any)?.replies ?? 0);
-
         const hasMedia = Boolean((p as any)?.hasMedia ?? false);
         const body = (p.body ?? "").trim();
-
         const createdAt = p.createdAt ?? null;
         const replyTo = (p as any)?.replyTo ?? null;
         const replyToId = (p as any)?.replyToId ?? null;
@@ -100,17 +87,15 @@ export default function PostsList(props: { posts: PostLike[]; emptyText: string 
                 {displayName ? (
                   <>
                     <span>{displayName}</span>
-                    <span className="muted">{" "}</span>
+                    <span className="muted"> </span>
                     <span className="mono">(@{username})</span>
                   </>
                 ) : (
                   <span className="mono">@{username}</span>
                 )}
-
                 {p.user?.official ? <span className="badge">Official</span> : null}
                 {isSpam ? <span className="badge warn">spam</span> : null}
               </div>
-
               <div className="postTime">{createdAt ? `sent ${timeAgo(createdAt)}` : ""}</div>
             </div>
 

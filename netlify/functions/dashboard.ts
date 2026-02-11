@@ -7,23 +7,22 @@ import { hoursAgoDate, toUTCDateISO, addDays } from "./lib/time";
 import { loadSeries } from "./lib/aggregate";
 import { build24hSummary } from "./lib/summarize";
 import { fetchCompanyNews24h } from "./lib/finnhub";
+import { finalSentimentFrom, labelFromIndex } from "./lib/final-sentiment";
 
 function safeMsg(x: any): MessageLite | null {
   if (!x) return null;
-
-  const createdAt =
-    typeof x.createdAt === "string"
-      ? x.createdAt
-      : typeof x.created_at === "string"
-        ? x.created_at
-        : "";
+  const createdAt = typeof x.createdAt === "string" ? x.createdAt : typeof x.created_at === "string" ? x.created_at : "";
   if (!createdAt) return null;
 
   const user = x.user ?? {};
   const links = Array.isArray(x.links) ? x.links : [];
-
   const modelSent = x.modelSentiment ?? {};
   const spam = x.spam ?? {};
+
+  const stSentimentBasic = x.stSentimentBasic ?? null;
+  const userSentiment = (x.userSentiment ?? stSentimentBasic) ?? null;
+  const modelScore = Number(modelSent.score ?? 0);
+  const fallbackFinal = finalSentimentFrom(userSentiment, modelScore);
 
   return {
     id: Number(x.id ?? 0),
@@ -41,12 +40,14 @@ function safeMsg(x: any): MessageLite | null {
     stSentimentBasic: x.stSentimentBasic ?? null,
     userSentiment: (x.userSentiment ?? x.stSentimentBasic) ?? null,
     modelSentiment: {
-      score: Number(modelSent.score ?? 0),
-      label:
-        modelSent.label === "bull" || modelSent.label === "bear" || modelSent.label === "neutral"
-          ? modelSent.label
-          : "neutral"
+      score: modelScore,
+      label: modelSent.label === "bull" || modelSent.label === "bear" || modelSent.label === "neutral" ? modelSent.label : "neutral"
     },
+    finalSentimentIndex: typeof x.finalSentimentIndex === "number" ? x.finalSentimentIndex : fallbackFinal.finalSentimentIndex,
+    finalSentimentLabel:
+      x.finalSentimentLabel === "bull" || x.finalSentimentLabel === "bear" || x.finalSentimentLabel === "neutral"
+        ? x.finalSentimentLabel
+        : fallbackFinal.finalSentimentLabel,
     likes: Number(x.likes ?? 0),
     replies: Number(x.replies ?? 0),
     symbolsTagged: Array.isArray(x.symbolsTagged) ? x.symbolsTagged.map((s: any) => String(s).toUpperCase()) : [],
@@ -99,7 +100,6 @@ function computeWatchersDelta(
 ) {
   const todayWatchers = series.days?.[today]?.watchers ?? null;
   const prevWatchers = series.days?.[yesterday]?.watchers ?? null;
-
   const latest = todayWatchers ?? currentWatchers;
   if (latest === null || prevWatchers === null) {
     return { watchersDelta: null };
@@ -143,18 +143,16 @@ export default async (req: Request, _context: Context) => {
       fetchCompanyNews24h(symbol).catch(() => [])
     ]);
 
-    const tMsgs = asArrayMessages(tRaw);
-    const yMsgs = asArrayMessages(yRaw);
-
-    const combined = [...tMsgs, ...yMsgs]
+    const combined = [...asArrayMessages(tRaw), ...asArrayMessages(yRaw)]
       .filter((m) => new Date(m.createdAt).getTime() >= cutoffMs)
       .sort((a, b) => b.id - a.id);
 
     const total24h = combined.length;
     const clean = combined.filter((m) => (m.spam?.score ?? 0) < spamThreshold).map(enrich);
 
-    const sentimentScore = clean.length > 0 ? clean.reduce((acc, m) => acc + (m.modelSentiment?.score ?? 0), 0) / clean.length : 0;
-    const sentimentLabel = sentimentScore > 0.15 ? "bull" : sentimentScore < -0.15 ? "bear" : "neutral";
+    const finalIndices = clean.map((m) => (typeof m.finalSentimentIndex === "number" ? m.finalSentimentIndex : finalSentimentFrom(m.userSentiment, m.modelSentiment.score).finalSentimentIndex));
+    const sentimentScore = finalIndices.length > 0 ? finalIndices.reduce((a, b) => a + b, 0) / finalIndices.length : 50;
+    const sentimentLabel = labelFromIndex(sentimentScore);
 
     const series = await loadSeries(symbol);
     const prev = series.days?.[yesterday];
@@ -195,8 +193,6 @@ export default async (req: Request, _context: Context) => {
       })
       .slice(0, 400);
 
-    const limitedNews24h = news24h.slice(0, 25);
-
     const out: DashboardResponse = {
       symbol,
       displayName: cfg.displayName,
@@ -204,10 +200,10 @@ export default async (req: Request, _context: Context) => {
       watchers: currentWatchers,
       watchersDelta: watcherDelta.watchersDelta,
       sentiment24h: {
-        score: Number(sentimentScore.toFixed(4)),
+        score: Number(sentimentScore.toFixed(1)),
         label: sentimentLabel,
         sampleSize: clean.length,
-        vsPrevDay: vsPrevDay === null ? null : Number(vsPrevDay.toFixed(4))
+        vsPrevDay: vsPrevDay === null ? null : Number(vsPrevDay.toFixed(1))
       },
       volume24h: {
         clean: clean.length,
@@ -215,7 +211,7 @@ export default async (req: Request, _context: Context) => {
         buzzMultiple: buzzMultiple === null ? null : Number(buzzMultiple.toFixed(2))
       },
       summary24h: summary,
-      news24h: limitedNews24h,
+      news24h: news24h.slice(0, 25),
       posts24h,
       popularPosts24h: popular,
       highlightedPosts: highlights,
@@ -227,10 +223,7 @@ export default async (req: Request, _context: Context) => {
 
     return new Response(JSON.stringify(out), {
       status: 200,
-      headers: {
-        "content-type": "application/json",
-        "cache-control": "public, max-age=15"
-      }
+      headers: { "content-type": "application/json", "cache-control": "public, max-age=15" }
     });
   } catch (e: any) {
     return new Response(JSON.stringify({ ok: false, error: String(e?.message ?? e) }), {

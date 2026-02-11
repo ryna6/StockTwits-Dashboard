@@ -1,6 +1,7 @@
 import type { MessageLite } from "../../../shared/types";
 import { getJSON, setJSON, kSeries } from "./blobs";
 import { toUTCDateISO } from "./time";
+import { finalSentimentFrom } from "./final-sentiment";
 
 type SeriesStore = {
   symbol: string;
@@ -27,8 +28,7 @@ function userSentimentToScore(v: MessageLite["userSentiment"]): number | null {
 }
 
 export async function loadSeries(symbol: string): Promise<SeriesStore> {
-  const key = kSeries(symbol);
-  const existing = await getJSON<SeriesStore>(key);
+  const existing = await getJSON<SeriesStore>(kSeries(symbol));
   if (existing?.symbol) return existing;
   return { symbol, updatedAt: new Date().toISOString(), days: {} };
 }
@@ -54,7 +54,7 @@ export async function updateSeries(symbol: string, newMessages: MessageLite[], w
     day.volumeTotal += 1;
     if (m.spam.score < Number(process.env.SPAM_THRESHOLD ?? "0.75")) {
       day.volumeClean += 1;
-      day.sentimentSumClean += m.modelSentiment.score;
+      day.sentimentSumClean += finalIndexForMessage(m);
       day.sentimentCountClean += 1;
 
       const us = userSentimentToScore(m.userSentiment ?? m.stSentimentBasic ?? null);

@@ -47,18 +47,18 @@ export function build24hSummary(args: {
 }) {
   const msgs = args.cleanMessages.slice(0, 800);
 
-  const themeCounts: Record<string, number> = {};
-  for (const m of msgs) {
-    const body = m.body || "";
+function topThemes(messages: MessageLite[]) {
+  const counts: Record<string, number> = {};
+  for (const m of messages) {
     for (const t of THEME_RULES) {
-      if (t.re.test(body)) themeCounts[t.name] = (themeCounts[t.name] ?? 0) + 1;
+      if (t.re.test(m.body || "")) counts[t.name] = (counts[t.name] ?? 0) + 1;
     }
   }
-
-  const themes = Object.entries(themeCounts)
+  return Object.entries(counts)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 6)
     .map(([name, count]) => ({ name, count }));
+}
 
   const direction = args.sentimentScore24h > 0.15 ? "bullish" : args.sentimentScore24h < -0.15 ? "bearish" : "mixed";
   const deltaText =
