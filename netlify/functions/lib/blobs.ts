@@ -46,3 +46,6 @@ export function kHash(hash: string) {
 export function kLock(symbol: string) {
   return `lock/${symbol.toUpperCase()}.json`;
 }
+export function kNews(symbol: string) {
+  return `news/${symbol.toUpperCase()}.json`;
+}

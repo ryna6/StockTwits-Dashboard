@@ -254,7 +254,7 @@ export default function App() {
   const popularSentAt = dash?.preview?.topPost?.createdAt ?? null;
   const highlightsSentAt = dash?.preview?.topHighlight?.createdAt ?? null;
   const topNews = dash?.news24h?.[0] ?? null;
-  const newsSharedAt = topNews?.publishedAt ?? null;
+  const newsSharedAt = topNews?.datetime ? new Date(topNews.datetime * 1000).toISOString() : null;
 
   return (
     <div className="app">
@@ -489,19 +489,23 @@ export default function App() {
               <div className="overviewStack">
                 <div className="overviewMain">
                   {topNews ? (
-                    <>
+                    <div className="newsMiniItem">
+                      <span className="newsMiniTitle">{topNews.headline}</span>
+                      <span className="newsMiniSummary">{topNews.summary}</span>
+                      <a className="newsMiniLink" href={topNews.url} target="_blank" rel="noreferrer">
+                        {topNews.url}
+                      </a>
                       <span className="newsMiniSource">{topNews.source}</span>
-                      <span className="newsMiniTitle">{topNews.title}</span>
-                    </>
+                    </div>
                   ) : (
-                    <span className="muted">No news found.</span>
+                    <span className="muted">No news in the past 24h.</span>
                   )}
                 </div>
-                {newsSharedAt ? <div className="overviewStamp">shared {timeAgo(newsSharedAt)}</div> : null}
+                {newsSharedAt ? <div className="overviewStamp">posted {timeAgo(newsSharedAt)}</div> : null}
               </div>
             }
           >
-            <NewsList links={dash.news24h as any} />
+            <NewsList links={dash.news24h} />
           </Card>
 
           {/* POPULAR */}
