@@ -82,10 +82,6 @@ function domainOf(url: string): string {
   }
 }
 
-/**
- * Popular sorting request:
- * likes -> replies -> followers (followers is a VERY small influence: tie-break only)
- */
 function comparePopular(a: MessageLite, b: MessageLite) {
   const al = a.likes ?? 0;
   const bl = b.likes ?? 0;
@@ -102,13 +98,6 @@ function comparePopular(a: MessageLite, b: MessageLite) {
   return (b.id ?? 0) - (a.id ?? 0);
 }
 
-/**
- * Build key links from clean messages with:
- * - count
- * - domain
- * - lastSharedAt (max createdAt over messages sharing it)
- * - best title (first non-empty title encountered)
- */
 function buildKeyLinks(clean: MessageLite[], maxLinks = 12) {
   type LinkAgg = { url: string; title?: string; domain: string; count: number; lastSharedAt?: string };
 
@@ -116,14 +105,11 @@ function buildKeyLinks(clean: MessageLite[], maxLinks = 12) {
 
   for (const m of clean) {
     if (!m.links || m.links.length === 0) continue;
-
-    // avoid double-counting same URL twice in same message
     const seen = new Set<string>();
 
     for (const l of m.links) {
       const url = String(l?.url ?? "").trim();
-      if (!url) continue;
-      if (seen.has(url)) continue;
+      if (!url || seen.has(url)) continue;
       seen.add(url);
 
       const existing = map.get(url);
@@ -143,10 +129,8 @@ function buildKeyLinks(clean: MessageLite[], maxLinks = 12) {
 
         if (!existing.lastSharedAt) {
           existing.lastSharedAt = createdAt;
-        } else {
-          const prev = new Date(existing.lastSharedAt).getTime();
-          const now = new Date(createdAt).getTime();
-          if (now > prev) existing.lastSharedAt = createdAt;
+        } else if (new Date(createdAt).getTime() > new Date(existing.lastSharedAt).getTime()) {
+          existing.lastSharedAt = createdAt;
         }
       }
     }
@@ -155,9 +139,7 @@ function buildKeyLinks(clean: MessageLite[], maxLinks = 12) {
   return [...map.values()]
     .sort((a, b) => {
       if (b.count !== a.count) return b.count - a.count;
-      const bt = b.lastSharedAt ? new Date(b.lastSharedAt).getTime() : 0;
-      const at = a.lastSharedAt ? new Date(a.lastSharedAt).getTime() : 0;
-      return bt - at;
+      return new Date(b.lastSharedAt ?? 0).getTime() - new Date(a.lastSharedAt ?? 0).getTime();
     })
     .slice(0, maxLinks);
 }
@@ -201,6 +183,7 @@ export default async (req: Request, _context: Context) => {
     };
 
     const cutoff = hoursAgoDate(24);
+    const cutoffMs = cutoff.getTime();
     const today = toUTCDateISO(new Date());
     const yesterday = toUTCDateISO(addDays(new Date(), -1));
 
@@ -213,46 +196,32 @@ export default async (req: Request, _context: Context) => {
     const tMsgs = asArrayMessages(tRaw);
     const yMsgs = asArrayMessages(yRaw);
 
-    // last 24h (from today + yesterday blobs), newest-first by id
     const combined = [...tMsgs, ...yMsgs]
-      .filter((m) => new Date(m.createdAt).getTime() >= cutoff.getTime())
+      .filter((m) => new Date(m.createdAt).getTime() >= cutoffMs)
       .sort((a, b) => b.id - a.id);
 
     const total24h = combined.length;
+    const clean = combined.filter((m) => (m.spam?.score ?? 0) < spamThreshold).map(enrich);
 
-    const cleanRaw = combined.filter((m) => (m.spam?.score ?? 0) < spamThreshold);
-    const clean = cleanRaw.map(enrich);
-
-    // sentiment: mean model score
-    const sentimentScore =
-      clean.length > 0 ? clean.reduce((acc, m) => acc + (m.modelSentiment?.score ?? 0), 0) / clean.length : 0;
-
+    const sentimentScore = clean.length > 0 ? clean.reduce((acc, m) => acc + (m.modelSentiment?.score ?? 0), 0) / clean.length : 0;
     const sentimentLabel = sentimentScore > 0.15 ? "bull" : sentimentScore < -0.15 ? "bear" : "neutral";
 
-    // daily series
     const series = await loadSeries(symbol);
     const prev = series.days?.[yesterday];
     const prevMean = prev && prev.sentimentCountClean > 0 ? prev.sentimentSumClean / prev.sentimentCountClean : null;
     const vsPrevDay = prevMean === null ? null : sentimentScore - prevMean;
 
-    // buzz baseline
     const sortedDates = Object.keys(series.days ?? {}).sort();
     const last20 = sortedDates.slice(-20);
-    const baseline =
-      last20.length > 0 ? last20.reduce((acc, d) => acc + (series.days[d]?.volumeClean ?? 0), 0) / last20.length : null;
-
+    const baseline = last20.length > 0 ? last20.reduce((acc, d) => acc + (series.days[d]?.volumeClean ?? 0), 0) / last20.length : null;
     const buzzMultiple = baseline && baseline > 0 ? clean.length / baseline : null;
 
-    // Popular: likes -> replies -> followers (tiny), then id
     const popular = [...clean].sort(comparePopular).slice(0, 15);
-
-    // Highlighted: official or whitelisted
     const highlights = clean
       .filter((m) => m.user.official || wlSet.has((m.user.username ?? "").toLowerCase()))
       .sort((a, b) => b.id - a.id)
       .slice(0, 25);
 
-    // Build key links with lastSharedAt + domain
     const keyLinks = buildKeyLinks(clean, 12);
 
     const linksForSummary: { url: string; title?: string }[] = [];
@@ -271,8 +240,9 @@ export default async (req: Request, _context: Context) => {
     summary.keyLinks = keyLinks;
 
     const state = await getJSON<any>(kState(symbol));
+    const currentWatchers = typeof state?.lastWatchers === "number" ? state.lastWatchers : null;
+    const watcherDelta = computeWatchersDelta(series, today, yesterday, currentWatchers);
 
-    // posts24h: all clean posts in last 24h, newest-first by createdAt (then id)
     const posts24h = [...clean]
       .sort((a, b) => {
         const bt = new Date(b.createdAt).getTime();
@@ -280,7 +250,9 @@ export default async (req: Request, _context: Context) => {
         if (bt !== at) return bt - at;
         return (b.id ?? 0) - (a.id ?? 0);
       })
-      .slice(0, 400); // safety cap so payload stays fast on iOS PWA
+      .slice(0, 400);
+
+    const newsItems24h = newsResult.ok ? extractNewsRows(newsResult.value, cutoffMs).slice(0, 25) : [];
 
     const news24h = extractNewsRows(newsRaw).slice(0, 25);
 
@@ -288,7 +260,9 @@ export default async (req: Request, _context: Context) => {
       symbol,
       displayName: cfg.displayName,
       lastSyncAt: state?.lastSyncAt ?? null,
-      watchers: state?.lastWatchers ?? null,
+      watchers: currentWatchers,
+      watchersDelta: watcherDelta.watchersDelta,
+      watchersDeltaPct: watcherDelta.watchersDeltaPct,
       sentiment24h: {
         score: Number(sentimentScore.toFixed(4)),
         label: sentimentLabel,

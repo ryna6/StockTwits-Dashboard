@@ -38,6 +38,8 @@ export type DashboardResponse = {
   displayName: string;
   lastSyncAt?: string;
   watchers?: number | null;
+  watchersDelta?: number | null;
+  watchersDeltaPct?: number | null;
 
   sentiment24h: {
     score: number;

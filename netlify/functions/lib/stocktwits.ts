@@ -13,7 +13,7 @@ export async function fetchSymbolStreamPage(symbol: string, max?: number): Promi
 
   const res = await fetch(url.toString(), {
     headers: {
-      "Accept": "application/json",
+      Accept: "application/json",
       "User-Agent": "StockTwits Catalyst Dashboard (Netlify Functions)"
     }
   });

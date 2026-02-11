@@ -95,6 +95,12 @@ a:hover{ text-decoration: underline; }
 
 .dot{ opacity: 0.6; }
 
+
+.watchDelta{ font-weight: 850; }
+.watchDelta.up{ color: var(--good); }
+.watchDelta.down{ color: var(--bad); }
+.watchDelta.flat{ color: var(--muted); }
+
 .controls{
   display:flex;
   align-items:center;
@@ -312,7 +318,6 @@ a:hover{ text-decoration: underline; }
   background: rgba(255,255,255,0.05);
   font-weight: 900;
   font-size: 12px;
-  text-transform: lowercase;
 }
 .pill.inline{ height: 22px; padding: 0 8px; font-size: 12px; }
 
@@ -326,7 +331,6 @@ a:hover{ text-decoration: underline; }
 .sentLabel{
   font-size: 22px;
   font-weight: 950;
-  text-transform: lowercase;
 }
 .sentLabel.bull{ color: var(--good); }
 .sentLabel.bear{ color: var(--bad); }
@@ -725,7 +729,6 @@ a:hover{ text-decoration: underline; }
   font-size: 12px;
   font-weight: 950;
   color: rgba(255,255,255,0.78);
-  text-transform: lowercase;
 }
 .newsTime{
   font-size: 12px;

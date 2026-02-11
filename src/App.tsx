@@ -139,12 +139,16 @@ export default function App() {
     }
   }
 
-  async function refreshNow() {
+  async function refreshNow(opts?: { hardReload?: boolean }) {
     if (!symbol) return;
     setSyncing(true);
     setErrorMsg(null);
     try {
       await apiSync(symbol);
+      if (opts?.hardReload) {
+        window.location.reload();
+        return;
+      }
       await loadAll(symbol, { includeStats: true });
     } catch (e: any) {
       setErrorMsg(String(e?.message ?? e));
@@ -298,7 +302,17 @@ export default function App() {
             <div className="brandMeta">
               <span>Last sync: {dash?.lastSyncAt ? timeAgo(dash.lastSyncAt) : "—"}</span>
               <span className="dot">•</span>
-              <span>Watchers: {dash?.watchers != null ? fmtInt(dash.watchers) : "—"}</span>
+              <span>
+                  Watchers: {dash?.watchers != null ? fmtInt(dash.watchers) : "—"}
+                  {dash?.watchers != null && dash?.watchersDelta != null ? (
+                    <span className={"watchDelta " + (dash.watchersDelta > 0 ? "up" : dash.watchersDelta < 0 ? "down" : "flat")}>
+                      {" "}
+                      ({dash.watchersDelta > 0 ? "+" : ""}
+                      {fmtInt(dash.watchersDelta)}
+                      {dash.watchersDeltaPct != null ? `, ${dash.watchersDeltaPct > 0 ? "+" : ""}${dash.watchersDeltaPct.toFixed(2)}%` : ""})
+                    </span>
+                  ) : null}
+                </span>
             </div>
           </div>
 
