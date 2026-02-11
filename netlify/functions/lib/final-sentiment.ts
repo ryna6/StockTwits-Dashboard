@@ -31,7 +31,7 @@ export function finalSentimentFrom(userTag: UserTagSentiment, modelScore: number
     userIdx === null
       ? modelIdx
       : hasModel
-        ? clamp(Math.round(1 * userIdx + 0.25 * modelIdx), 0, 100)
+        ? clamp(Math.round(0.75 * userIdx + 0.25 * modelIdx), 0, 100)
         : userIdx;
 
   return {

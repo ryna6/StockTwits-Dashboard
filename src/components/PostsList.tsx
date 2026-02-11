@@ -44,7 +44,7 @@ function finalIndexForPost(p: any): number {
 
   if (userIdx !== null) {
     if (!hasModel) return clamp(Math.round(userIdx), 0, 100);
-    return clamp(Math.round(1 * userIdx + 0.25 * modelIdx), 0, 100);
+    return clamp(Math.round(0.75 * userIdx + 0.25 * modelIdx), 0, 100);
   }
   return clamp(Math.round(modelIdx), 0, 100);
 }
