@@ -25,6 +25,7 @@ export type MessageLite = {
     official?: boolean;
   };
   stSentimentBasic?: "Bullish" | "Bearish" | null;
+  userSentiment?: "Bullish" | "Bearish" | null;
   modelSentiment: { score: number; label: "bull" | "neutral" | "bear" };
   likes: number;
   replies: number;
@@ -39,7 +40,6 @@ export type DashboardResponse = {
   lastSyncAt?: string;
   watchers?: number | null;
   watchersDelta?: number | null;
-  watchersDeltaPct?: number | null;
 
   sentiment24h: {
     score: number;
@@ -55,10 +55,9 @@ export type DashboardResponse = {
   };
 
   summary24h: {
-    tldr: string;
+    longSummary: string;
     themes: { name: string; count: number }[];
     evidencePosts: Pick<MessageLite, "id" | "createdAt" | "body" | "user" | "likes" | "replies" | "links">[];
-    keyLinks: { url: string; title?: string; domain: string; count: number; lastSharedAt?: string }[];
   };
 
   news24h: {
@@ -78,7 +77,6 @@ export type DashboardResponse = {
   preview: {
     topPost?: MessageLite | null;
     topHighlight?: MessageLite | null;
-    topLink?: { url: string; title?: string; domain: string; count: number } | null;
   };
 };
 
@@ -88,7 +86,7 @@ export type DailySeriesPoint = {
   volumeTotal: number;
   sentimentMean: number | null;
   watchers: number | null;
-  close: number | null;
+  priceClose: number | null;
 };
 
 export type StatsResponse = {

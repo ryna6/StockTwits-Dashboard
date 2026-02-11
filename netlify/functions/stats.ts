@@ -23,11 +23,11 @@ export default async (req: Request, _context: Context) => {
     const base = seriesToPoints(series, dates);
     const points = base.map((p) => ({
       ...p,
-      close: priceCloseForDate(price, p.date)
+      priceClose: priceCloseForDate(price, p.date)
     }));
 
     const hasWatchers = points.some((p) => typeof p.watchers === "number" && p.watchers !== null);
-    const hasPrice = points.some((p) => typeof p.close === "number" && p.close !== null);
+    const hasPrice = points.some((p) => typeof p.priceClose === "number" && p.priceClose !== null);
 
     const out: StatsResponse = { symbol, rangeDays, points, hasWatchers, hasPrice };
 

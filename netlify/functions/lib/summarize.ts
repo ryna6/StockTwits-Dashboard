@@ -1,32 +1,51 @@
 import type { MessageLite } from "../../../shared/types";
 
-function domainOf(url: string): string {
-  try {
-    return new URL(url).hostname.replace(/^www\./, "");
-  } catch {
-    return "unknown";
-  }
+type ThemeRule = { name: string; re: RegExp };
+
+const THEME_RULES: ThemeRule[] = [
+  { name: "Contracts/Awards", re: /\b(contract|contracts|award|awarded|order|orders|procurement|backlog|dod|army|navy|air force)\b/i },
+  { name: "LOI/Partnership", re: /\b(loi|letter of intent|partnership|partner|collaboration|joint venture|strategic)\b/i },
+  { name: "Revenue/Guidance", re: /\b(revenue|guidance|forecast|outlook|eps|margin|profitability|bookings)\b/i },
+  { name: "Dilution/Offering", re: /\b(dilution|offering|atm|warrant|convertible|s-3)\b/i },
+  { name: "Listing/Compliance", re: /\b(nasdaq compliance|compliance|deficiency|reverse split|listing|uplist)\b/i },
+  { name: "Earnings", re: /\b(earnings|quarter|q1|q2|q3|q4|10-q|10-k)\b/i },
+  { name: "FDA/Clinical", re: /\b(fda|trial|phase [1-4]|pdufa|clinical|endpoint)\b/i },
+  { name: "M&A", re: /\b(acquisition|acquire|merger|buyout)\b/i },
+  { name: "Filings/PR", re: /\b(sec filing|8-k|press release|pr|filing)\b/i },
+  { name: "Price Target", re: /\b(price target|pt\b|target raise|target cut|upgrade|downgrade)\b/i }
+];
+
+function engagementScore(m: MessageLite): number {
+  return (m.likes ?? 0) * 2 + (m.replies ?? 0) * 3 + Math.log10((m.user?.followers ?? 0) + 10);
 }
 
-const THEME_RULES: { name: string; re: RegExp }[] = [
-  { name: "Contracts", re: /\b(contract|contracts|award|order|orders|deal|SSR|fund|funds|suas|customer|army|procurement)\b/i },
-  { name: "Earnings", re: /\b(earnings|guidance|revenue|eps|profit|margin)\b/i },
-  { name: "Offering", re: /\b(offering|dilution|dilutive|s-3|atm|warrant)\b/i },
-  { name: "Regulation", re: /\b(approval|approved|faa|certification|regulator)\b/i },
-  { name: "Partnership", re: /\b(partnership|partner|strategic|collaboration|umac|pltr|pdyn)\b/i },
-  { name: "Shorts", re: /\b(short|borrow|squeeze|cover)\b/i }
-];
+function sentenceFromPost(m: MessageLite): string {
+  const body = (m.body ?? "").replace(/\s+/g, " ").trim();
+  const short = body.length > 180 ? `${body.slice(0, 177)}...` : body;
+  return `@${m.user.username} noted: ${short || "(media-only post)"}.`;
+}
+
+function uniqueById(messages: MessageLite[]): MessageLite[] {
+  const seen = new Set<number>();
+  const out: MessageLite[] = [];
+  for (const m of messages) {
+    if (seen.has(m.id)) continue;
+    seen.add(m.id);
+    out.push(m);
+  }
+  return out;
+}
 
 export function build24hSummary(args: {
   symbol: string;
   displayName: string;
   cleanMessages: MessageLite[];
   popular: MessageLite[];
-  links: { url: string; title?: string }[];
+  highlights: MessageLite[];
   sentimentScore24h: number;
   vsPrevDay: number | null;
 }) {
-  const msgs = args.cleanMessages.slice(0, 500);
+  const msgs = args.cleanMessages.slice(0, 800);
 
   const themeCounts: Record<string, number> = {};
   for (const m of msgs) {
@@ -38,48 +57,47 @@ export function build24hSummary(args: {
 
   const themes = Object.entries(themeCounts)
     .sort((a, b) => b[1] - a[1])
-    .slice(0, 4)
+    .slice(0, 6)
     .map(([name, count]) => ({ name, count }));
 
-  // links grouped
-  const linkCounts = new Map<string, { url: string; title?: string; domain: string; count: number }>();
-  for (const l of args.links) {
-    const key = l.url;
-    const existing = linkCounts.get(key);
-    if (existing) existing.count += 1;
-    else linkCounts.set(key, { url: l.url, title: l.title, domain: domainOf(l.url), count: 1 });
-  }
-
-  const keyLinks = [...linkCounts.values()]
-    .sort((a, b) => b.count - a.count)
-    .slice(0, 8);
-
-  const direction =
-    args.sentimentScore24h > 0.15 ? "bullish" : args.sentimentScore24h < -0.15 ? "bearish" : "mixed";
-
-  const deltaPart =
+  const direction = args.sentimentScore24h > 0.15 ? "bullish" : args.sentimentScore24h < -0.15 ? "bearish" : "mixed";
+  const deltaText =
     typeof args.vsPrevDay === "number"
-      ? ` (vs prior day ${args.vsPrevDay >= 0 ? "+" : ""}${args.vsPrevDay.toFixed(2)})`
+      ? ` Versus the prior day, net sentiment moved ${args.vsPrevDay >= 0 ? "up" : "down"} by ${Math.abs(args.vsPrevDay).toFixed(2)}.`
       : "";
 
-  const themePart =
-    themes.length > 0
-      ? `Top themes: ${themes.map((t) => `${t.name} (${t.count})`).join("; ")}.`
-      : "No dominant theme detected (chatter is broad).";
+  const keyUsers = args.highlights
+    .slice()
+    .sort((a, b) => engagementScore(b) - engagementScore(a))
+    .slice(0, 2);
 
-  const linkPart =
-    keyLinks.length > 0
-      ? `Most-shared link domain: ${keyLinks[0].domain}.`
-      : "No widely-shared link stood out.";
+  const popular = args.popular.slice(0, 2);
+  const broader = args.cleanMessages
+    .slice()
+    .sort((a, b) => engagementScore(b) - engagementScore(a))
+    .slice(0, 2);
 
-  const tldr = `${args.symbol}: Retail tone is ${direction}${deltaPart}. ${themePart} ${linkPart}`;
+  const evidence = uniqueById([...keyUsers, ...popular, ...broader]).slice(0, 6);
 
-  // evidence posts: pick top popular + 1 per top theme (if any)
-  const evidence: MessageLite[] = [];
-  for (const p of args.popular.slice(0, 3)) evidence.push(p);
+  const sentences: string[] = [];
+  sentences.push(
+    `${args.symbol} chatter over the last 24 hours was ${direction} across ${args.cleanMessages.length} clean posts, weighted most heavily toward key users and high-engagement messages.${deltaText}`.trim()
+  );
+
+  if (themes.length > 0) {
+    sentences.push(`Catalyst discussion centered on ${themes.slice(0, 3).map((t) => `${t.name} (${t.count})`).join(", ")}.`);
+  } else {
+    sentences.push("No single catalyst cluster dominated; discussion was broad and post-specific.");
+  }
+
+  if (keyUsers.length > 0) sentences.push(`Key-user signal: ${sentenceFromPost(keyUsers[0])}`);
+  if (popular.length > 0) sentences.push(`High-engagement signal: ${sentenceFromPost(popular[0])}`);
+  if (broader.length > 0) sentences.push(`Broader-post signal: ${sentenceFromPost(broader[0])}`);
+
+  const longSummary = sentences.slice(0, 5).join(" ");
 
   return {
-    tldr,
+    longSummary,
     themes,
     evidencePosts: evidence.map((m) => ({
       id: m.id,
@@ -89,8 +107,6 @@ export function build24hSummary(args: {
       likes: m.likes,
       replies: m.replies,
       links: m.links
-    })),
-    keyLinks
+    }))
   };
 }
-

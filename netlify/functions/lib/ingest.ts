@@ -96,6 +96,7 @@ function toLite(symbol: string, m: any, duplicateSymbolsCount: number, whitelist
       official: Boolean(user?.official)
     },
     stSentimentBasic,
+    userSentiment: stSentimentBasic,
     modelSentiment: ms,
     likes,
     replies,
