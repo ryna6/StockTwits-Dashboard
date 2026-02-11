@@ -62,11 +62,12 @@ export type DashboardResponse = {
   };
 
   news24h: {
-    id: number;
-    title: string;
+    id: string;
+    headline: string;
+    summary: string;
     url: string;
     source: string;
-    publishedAt?: string;
+    datetime: number;
   }[];
 
   posts24h: MessageLite[];

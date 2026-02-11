@@ -6,7 +6,7 @@ import { getJSON, kMsgs, kState } from "./lib/blobs";
 import { hoursAgoDate, toUTCDateISO, addDays } from "./lib/time";
 import { loadSeries } from "./lib/aggregate";
 import { build24hSummary } from "./lib/summarize";
-import { fetchSymbolNewsPage } from "./lib/stocktwits";
+import { fetchCompanyNews24h } from "./lib/finnhub";
 
 function safeMsg(x: any): MessageLite | null {
   if (!x) return null;
@@ -144,21 +144,6 @@ function buildKeyLinks(clean: MessageLite[], maxLinks = 12) {
     .slice(0, maxLinks);
 }
 
-function extractNewsRows(payload: any): DashboardResponse["news24h"] {
-  const rows: DashboardResponse["news24h"] = [];
-  const rawRows = Array.isArray(payload?.news) ? payload.news : [];
-  for (const n of rawRows) {
-    const id = Number(n?.id ?? 0);
-    const title = String(n?.title ?? "").trim();
-    const url = String(n?.url ?? "").trim();
-    const source = String(n?.source ?? n?.site ?? "StockTwits").trim() || "StockTwits";
-    const publishedAt = typeof n?.published_at === "string" ? n.published_at : typeof n?.created_at === "string" ? n.created_at : undefined;
-    if (!id || !title || !url) continue;
-    rows.push({ id, title, url, source, publishedAt });
-  }
-  return rows;
-}
-
 function computeWatchersDelta(
   series: Awaited<ReturnType<typeof loadSeries>>,
   today: string,
@@ -210,10 +195,10 @@ export default async (req: Request, _context: Context) => {
     const today = toUTCDateISO(new Date());
     const yesterday = toUTCDateISO(addDays(new Date(), -1));
 
-    const [tRaw, yRaw, newsRaw] = await Promise.all([
+    const [tRaw, yRaw, news24h] = await Promise.all([
       getJSON<any>(kMsgs(symbol, today)),
       getJSON<any>(kMsgs(symbol, yesterday)),
-      fetchSymbolNewsPage(symbol).catch(() => null)
+      fetchCompanyNews24h(symbol).catch(() => [])
     ]);
 
     const tMsgs = asArrayMessages(tRaw);
@@ -275,7 +260,7 @@ export default async (req: Request, _context: Context) => {
       })
       .slice(0, 400);
 
-    const news24h = extractNewsRows(newsRaw).slice(0, 25);
+    const limitedNews24h = news24h.slice(0, 25);
 
     const out: DashboardResponse = {
       symbol,
@@ -296,7 +281,7 @@ export default async (req: Request, _context: Context) => {
         buzzMultiple: buzzMultiple === null ? null : Number(buzzMultiple.toFixed(2))
       },
       summary24h: summary,
-      news24h,
+      news24h: limitedNews24h,
       posts24h,
       popularPosts24h: popular,
       highlightedPosts: highlights,
