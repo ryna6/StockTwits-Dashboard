@@ -73,6 +73,7 @@ function toLite(symbol: string, m: any, duplicateSymbolsCount: number, whitelist
   const stBasic = m?.entities?.sentiment?.basic;
   const stSentimentBasic =
     stBasic === "Bullish" || stBasic === "Bearish" ? (stBasic as "Bullish" | "Bearish") : null;
+  const sentimentTagLabel = stSentimentBasic ?? "Neutral";
 
   const finalSent = finalSentimentFrom(stSentimentBasic, ms.score);
 
@@ -100,6 +101,7 @@ function toLite(symbol: string, m: any, duplicateSymbolsCount: number, whitelist
     },
     stSentimentBasic,
     userSentiment: stSentimentBasic,
+    sentimentTagLabel,
     modelSentiment: ms,
     finalSentimentIndex: finalSent.finalSentimentIndex,
     finalSentimentLabel: finalSent.finalSentimentLabel,

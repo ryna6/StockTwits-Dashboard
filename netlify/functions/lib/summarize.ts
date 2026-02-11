@@ -15,9 +15,8 @@ const THEME_RULES: ThemeRule[] = [
   { name: "Price Target", re: /\b(price target|pt\b|target raise|target cut|upgrade|downgrade)\b/i }
 ];
 
-function engagementScore(m: MessageLite): number {
-  return (m.likes ?? 0) * 2 + (m.replies ?? 0) * 3 + Math.log10((m.user?.followers ?? 0) + 10);
-}
+const INFO_KEYWORDS = /\b(8-k|10-k|10-q|sec|filing|press release|guidance|eps|revenue|backlog|contract|award|fda|pdufa|phase [1-4]|partnership|loi|acquisition|merger)\b/i;
+const CREDIBLE_DOMAIN_RE = /(sec\.gov|investor\.|globenewswire\.com|businesswire\.com|prnewswire\.com|fool\.com|bloomberg\.com|reuters\.com|wsj\.com|finance\.yahoo\.com)$/i;
 
 function sentenceFromPost(m: MessageLite): string {
   const body = (m.body ?? "").replace(/\s+/g, " ").trim();
@@ -36,17 +35,6 @@ function uniqueById(messages: MessageLite[]): MessageLite[] {
   return out;
 }
 
-export function build24hSummary(args: {
-  symbol: string;
-  displayName?: string;
-  cleanMessages: MessageLite[];
-  popular: MessageLite[];
-  highlights: MessageLite[];
-  sentimentScore24h: number;
-  vsPrevDay: number | null;
-}) {
-  const msgs = args.cleanMessages.slice(0, 800);
-
 function topThemes(messages: MessageLite[]) {
   const counts: Record<string, number> = {};
   for (const m of messages) {
@@ -60,31 +48,52 @@ function topThemes(messages: MessageLite[]) {
     .map(([name, count]) => ({ name, count }));
 }
 
+function informationDensityScore(m: MessageLite): number {
+  const body = m.body ?? "";
+  const numericHits = (body.match(/\b\d+(?:\.\d+)?%?\b/g) ?? []).length;
+  const keywordHit = INFO_KEYWORDS.test(body) ? 1 : 0;
+  const linkQualityHit = (m.links ?? []).some((l) => {
+    try {
+      const host = new URL(l.url).hostname.toLowerCase();
+      return CREDIBLE_DOMAIN_RE.test(host);
+    } catch {
+      return false;
+    }
+  })
+    ? 1
+    : 0;
+
+  return numericHits + keywordHit * 3 + linkQualityHit * 2;
+}
+
+export function build24hSummary(args: {
+  symbol: string;
+  displayName?: string;
+  cleanMessages: MessageLite[];
+  popular: MessageLite[];
+  highlights: MessageLite[];
+  sentimentScore24h: number;
+  vsPrevDay: number | null;
+}) {
+  const msgs = args.cleanMessages.slice(0, 800);
   const themes = topThemes(msgs);
 
-  const direction = args.sentimentScore24h > 0.15 ? "bullish" : args.sentimentScore24h < -0.15 ? "bearish" : "mixed";
+  const direction = args.sentimentScore24h >= 55 ? "bullish" : args.sentimentScore24h <= 45 ? "bearish" : "mixed";
   const deltaText =
     typeof args.vsPrevDay === "number"
-      ? ` Versus the prior day, net sentiment moved ${args.vsPrevDay >= 0 ? "up" : "down"} by ${Math.abs(args.vsPrevDay).toFixed(2)}.`
+      ? ` Versus the prior day, sentiment moved ${args.vsPrevDay >= 0 ? "up" : "down"} by ${Math.abs(args.vsPrevDay).toFixed(0)} points.`
       : "";
 
-  const keyUsers = args.highlights
+  const keyUsers = args.highlights.slice(0, 3);
+  const infoDense = args.cleanMessages
     .slice()
-    .sort((a, b) => engagementScore(b) - engagementScore(a))
-    .slice(0, 2);
+    .sort((a, b) => informationDensityScore(b) - informationDensityScore(a))
+    .slice(0, 4);
 
-  const popular = args.popular.slice(0, 2);
-  const broader = args.cleanMessages
-    .slice()
-    .sort((a, b) => engagementScore(b) - engagementScore(a))
-    .slice(0, 2);
-
-  const evidence = uniqueById([...keyUsers, ...popular, ...broader]).slice(0, 6);
+  const evidence = uniqueById([...keyUsers, ...infoDense]).slice(0, 6);
 
   const sentences: string[] = [];
-  sentences.push(
-    `${args.symbol} chatter over the last 24 hours was ${direction} across ${args.cleanMessages.length} clean posts, weighted most heavily toward key users and high-engagement messages.${deltaText}`.trim()
-  );
+  sentences.push(`${args.symbol} chatter over the last 24 hours was ${direction} across ${args.cleanMessages.length} clean posts.${deltaText}`.trim());
 
   if (themes.length > 0) {
     sentences.push(`Catalyst discussion centered on ${themes.slice(0, 3).map((t) => `${t.name} (${t.count})`).join(", ")}.`);
@@ -93,8 +102,7 @@ function topThemes(messages: MessageLite[]) {
   }
 
   if (keyUsers.length > 0) sentences.push(`Key-user signal: ${sentenceFromPost(keyUsers[0])}`);
-  if (popular.length > 0) sentences.push(`High-engagement signal: ${sentenceFromPost(popular[0])}`);
-  if (broader.length > 0) sentences.push(`Broader-post signal: ${sentenceFromPost(broader[0])}`);
+  if (infoDense.length > 0) sentences.push(`Information-dense signal: ${sentenceFromPost(infoDense[0])}`);
 
   const longSummary = sentences.slice(0, 5).join(" ");
 
