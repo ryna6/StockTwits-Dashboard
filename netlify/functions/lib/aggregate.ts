@@ -35,8 +35,6 @@ function userSentimentToIndex(v: MessageLite["userSentiment"]): number | null {
 }
 
 function finalIndexForMessage(m: MessageLite): number {
-  const normalizedStored = normalizeIndexValue(m.finalSentimentIndex);
-  if (normalizedStored !== null) return normalizedStored;
   return finalSentimentFrom(m.userSentiment ?? m.stSentimentBasic, m.modelSentiment?.score ?? 0).finalSentimentIndex;
 }
 
