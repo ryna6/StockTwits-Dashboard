@@ -159,6 +159,29 @@ function extractNewsRows(payload: any): DashboardResponse["news24h"] {
   return rows;
 }
 
+function computeWatchersDelta(
+  series: Awaited<ReturnType<typeof loadSeries>>,
+  today: string,
+  yesterday: string,
+  currentWatchers: number | null
+) {
+  const todayWatchers = series.days?.[today]?.watchers ?? null;
+  const prevWatchers = series.days?.[yesterday]?.watchers ?? null;
+
+  const latest = todayWatchers ?? currentWatchers;
+  if (latest === null || prevWatchers === null) {
+    return { watchersDelta: null, watchersDeltaPct: null };
+  }
+
+  const watchersDelta = latest - prevWatchers;
+  const watchersDeltaPct = prevWatchers > 0 ? (watchersDelta / prevWatchers) * 100 : null;
+
+  return {
+    watchersDelta,
+    watchersDeltaPct: watchersDeltaPct === null ? null : Number(watchersDeltaPct.toFixed(2))
+  };
+}
+
 export default async (req: Request, _context: Context) => {
   try {
     const url = new URL(req.url);
@@ -251,8 +274,6 @@ export default async (req: Request, _context: Context) => {
         return (b.id ?? 0) - (a.id ?? 0);
       })
       .slice(0, 400);
-
-    const newsItems24h = newsResult.ok ? extractNewsRows(newsResult.value, cutoffMs).slice(0, 25) : [];
 
     const news24h = extractNewsRows(newsRaw).slice(0, 25);
 
