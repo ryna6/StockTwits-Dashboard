@@ -69,8 +69,14 @@ function toLite(symbol: string, m: any, duplicateSymbolsCount: number, whitelist
       joinDate,
       official: Boolean(user?.official)
     },
-    stSentimentBasic,
-    userSentiment: stSentimentBasic,
+    stSentimentBasic:
+      m?.entities?.sentiment?.basic === "Bullish" || m?.entities?.sentiment?.basic === "Bearish"
+        ? m.entities.sentiment.basic
+        : null,
+    userSentiment:
+      m?.entities?.sentiment?.basic === "Bullish" || m?.entities?.sentiment?.basic === "Bearish"
+        ? m.entities.sentiment.basic
+        : null,
     modelSentiment: ms,
     finalSentimentIndex: finalSent.finalSentimentIndex,
     finalSentimentLabel: finalSent.finalSentimentLabel,
