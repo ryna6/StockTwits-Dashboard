@@ -23,7 +23,7 @@ function labelFromIndex(index: number): "bull" | "bear" | "neutral" {
   return "neutral";
 }
 
-function modelToIndex(score: number) {
+function modelToIndex(score: number | null | undefined) {
   const s = Number(score);
   if (!Number.isFinite(s)) return 50;
   if (s >= 0 && s <= 100) return Math.round(s);
@@ -39,10 +39,21 @@ function userSentimentToIndex(sentiment?: "Bullish" | "Bearish" | null): number 
 function finalIndexForPost(p: any): number {
   const userSent = (p?.userSentiment ?? p?.stSentimentBasic ?? null) as "Bullish" | "Bearish" | null;
   const userIdx = userSentimentToIndex(userSent);
-  const modelIdx = modelToIndex(Number(p?.modelSentiment?.score ?? p?.finalSentimentIndex ?? 50));
+  const modelIdx = modelToIndex((p?.modelSentiment?.score as number | undefined) ?? null);
+  const hasModel = Number.isFinite(Number(p?.modelSentiment?.score));
 
-  if (userIdx !== null) return clamp(Math.round(0.7 * userIdx + 0.3 * modelIdx), 0, 100);
+  if (userIdx !== null) {
+    if (!hasModel) return clamp(Math.round(userIdx), 0, 100);
+    return clamp(Math.round(1 * userIdx + 0.25 * modelIdx), 0, 100);
+  }
   return clamp(Math.round(modelIdx), 0, 100);
+}
+
+function userTagLabelForPost(p: any): "Bullish" | "Bearish" | "Neutral" {
+  const explicit = p?.sentimentTagLabel;
+  if (explicit === "Bullish" || explicit === "Bearish" || explicit === "Neutral") return explicit;
+  const userSent = (p?.userSentiment ?? p?.stSentimentBasic ?? null) as "Bullish" | "Bearish" | null;
+  return userSent === "Bullish" || userSent === "Bearish" ? userSent : "Neutral";
 }
 
 function openStockTwits(username: string, id: number) {
@@ -63,9 +74,11 @@ type PostLike = Partial<MessageLite> & {
   replyToId?: number | null;
 };
 
-export default function PostsList(props: { posts?: PostLike[]; emptyText: string }) {
+export default function PostsList(props: { posts?: PostLike[]; emptyText: string; sentimentMode?: "detailed" | "tagOnly" }) {
   const posts = Array.isArray(props.posts) ? props.posts : [];
   if (posts.length === 0) return <div className="muted">{props.emptyText}</div>;
+
+  const sentimentMode = props.sentimentMode ?? "detailed";
 
   return (
     <div className="posts">
@@ -77,6 +90,8 @@ export default function PostsList(props: { posts?: PostLike[]; emptyText: string
 
         const finalIdx = finalIndexForPost(p as any);
         const sentimentLabel = labelFromIndex(finalIdx);
+        const userTagLabel = userTagLabelForPost(p as any);
+        const userTagClass = userTagLabel === "Bullish" ? "bull" : userTagLabel === "Bearish" ? "bear" : "neutral";
 
         const msIdx = modelToIndex(Number((p as any)?.modelSentiment?.score ?? 50));
         const msLabel = labelFromIndex(msIdx);
@@ -142,13 +157,19 @@ export default function PostsList(props: { posts?: PostLike[]; emptyText: string
             <div className="postMeta">
               <span className="metaItem">❤ {likes}</span>
               <span className="metaItem">↩ {replies}</span>
-              <span className={"metaItem sentiment " + sentimentLabel}>Final: {labelText(sentimentLabel)} ({finalIdx})</span>
-              {usIdx !== null ? (
-                <span className={"metaItem sentiment user " + (userSent === "Bullish" ? "bull" : "bear")}>
-                  User: {userSent} ({usIdx})
-                </span>
-              ) : null}
-              <span className={"metaItem sentiment model " + msLabel}>Model: {labelText(msLabel)} ({msIdx})</span>
+              {sentimentMode === "tagOnly" ? (
+                <span className={"metaItem sentiment " + userTagClass}>{userTagLabel}</span>
+              ) : (
+                <>
+                  <span className={"metaItem sentiment " + sentimentLabel}>Final: {labelText(sentimentLabel)} ({finalIdx})</span>
+                  {usIdx !== null ? (
+                    <span className={"metaItem sentiment user " + (userSent === "Bullish" ? "bull" : "bear")}>
+                      User: {userSent} ({usIdx})
+                    </span>
+                  ) : null}
+                  <span className={"metaItem sentiment model " + msLabel}>Model: {labelText(msLabel)} ({msIdx})</span>
+                </>
+              )}
             </div>
 
             {Array.isArray((p as any)?.links) && (p as any).links.length ? (
