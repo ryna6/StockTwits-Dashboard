@@ -1,6 +1,7 @@
 import type { MessageLite } from "../../../shared/types";
 import { getJSON, setJSON, kSeries } from "./blobs";
 import { toUTCDateISO } from "./time";
+import { finalSentimentFrom } from "./final-sentiment";
 
 type SeriesStore = {
   symbol: string;
@@ -18,9 +19,13 @@ type SeriesStore = {
   >;
 };
 
+function finalIndexForMessage(m: MessageLite): number {
+  if (typeof m.finalSentimentIndex === "number") return m.finalSentimentIndex;
+  return finalSentimentFrom(m.userSentiment ?? m.stSentimentBasic ?? null, m.modelSentiment?.score ?? 0).finalSentimentIndex;
+}
+
 export async function loadSeries(symbol: string): Promise<SeriesStore> {
-  const key = kSeries(symbol);
-  const existing = await getJSON<SeriesStore>(key);
+  const existing = await getJSON<SeriesStore>(kSeries(symbol));
   if (existing?.symbol) return existing;
   return { symbol, updatedAt: new Date().toISOString(), days: {} };
 }
@@ -28,7 +33,6 @@ export async function loadSeries(symbol: string): Promise<SeriesStore> {
 export async function updateSeries(symbol: string, newMessages: MessageLite[], watchers: number | null) {
   const series = await loadSeries(symbol);
 
-  // Update per-day aggregates incrementally
   for (const m of newMessages) {
     const date = toUTCDateISO(new Date(m.createdAt));
     const day =
@@ -45,12 +49,11 @@ export async function updateSeries(symbol: string, newMessages: MessageLite[], w
     day.volumeTotal += 1;
     if (m.spam.score < Number(process.env.SPAM_THRESHOLD ?? "0.75")) {
       day.volumeClean += 1;
-      day.sentimentSumClean += m.modelSentiment.score;
+      day.sentimentSumClean += finalIndexForMessage(m);
       day.sentimentCountClean += 1;
     }
   }
 
-  // Set today's watchers snapshot (if provided)
   if (watchers !== null) {
     const today = toUTCDateISO(new Date());
     const d =
@@ -66,7 +69,6 @@ export async function updateSeries(symbol: string, newMessages: MessageLite[], w
     d.watchers = watchers;
   }
 
-  // prune old days (keep ~400)
   const keys = Object.keys(series.days).sort();
   if (keys.length > 420) {
     const toDrop = keys.slice(0, keys.length - 420);
@@ -80,8 +82,8 @@ export async function updateSeries(symbol: string, newMessages: MessageLite[], w
 export function seriesToPoints(series: SeriesStore, dates: string[]) {
   return dates.map((date) => {
     const d = series.days[date];
-    const mean =
-      d && d.sentimentCountClean > 0 ? d.sentimentSumClean / d.sentimentCountClean : null;
+    let mean = d && d.sentimentCountClean > 0 ? d.sentimentSumClean / d.sentimentCountClean : null;
+    if (mean !== null && mean >= -1 && mean <= 1) mean = Math.round((mean + 1) * 50);
     return {
       date,
       volumeClean: d?.volumeClean ?? 0,
@@ -91,4 +93,3 @@ export function seriesToPoints(series: SeriesStore, dates: string[]) {
     };
   });
 }
-
