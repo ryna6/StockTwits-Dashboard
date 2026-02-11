@@ -160,15 +160,18 @@ export default async (req: Request, _context: Context) => {
     const total24h = combined.length;
     const clean = combined.filter((m) => (m.spam?.score ?? 0) < spamThreshold).map(enrich);
 
-    const weightedFinal = clean.map((m) => {
+    const taggedSentimentPosts = clean.filter((m) => {
       const userTag = m.userSentiment ?? m.stSentimentBasic ?? null;
-      const finalIdx = finalSentimentFrom(userTag, m.modelSentiment.score).finalSentimentIndex;
-      const weight = userTag === "Bullish" || userTag === "Bearish" ? 3 : 1;
-      return { finalIdx, weight };
+      return userTag === "Bullish" || userTag === "Bearish";
     });
-    const weightedSum = weightedFinal.reduce((acc, x) => acc + x.finalIdx * x.weight, 0);
-    const weightTotal = weightedFinal.reduce((acc, x) => acc + x.weight, 0);
-    const sentimentScoreRaw = weightTotal > 0 ? weightedSum / weightTotal : 50;
+
+    const taggedFinalIndices = taggedSentimentPosts.map((m) => {
+      const userTag = m.userSentiment ?? m.stSentimentBasic ?? null;
+      return finalSentimentFrom(userTag, m.modelSentiment.score).finalSentimentIndex;
+    });
+
+    const sentimentScoreRaw =
+      taggedFinalIndices.length > 0 ? taggedFinalIndices.reduce((acc, idx) => acc + idx, 0) / taggedFinalIndices.length : 50;
     const sentimentScore = Math.max(0, Math.min(100, Math.round(sentimentScoreRaw)));
     const sentimentLabel = labelFromIndex(sentimentScore);
 
@@ -236,7 +239,7 @@ export default async (req: Request, _context: Context) => {
       sentiment24h: {
         score: sentimentScore,
         label: sentimentLabel,
-        sampleSize: clean.length,
+        sampleSize: taggedFinalIndices.length,
         vsPrevDay
       },
       volume24h: {
