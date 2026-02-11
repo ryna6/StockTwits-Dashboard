@@ -41,9 +41,9 @@ type Change = {
   pct: number | null;
 };
 
-function computeChange(series: number[], stepsBack: number): Change | null {
-  if (!series.length) return null;
-  const to = series[series.length - 1];
+function computeChange(series: number[], stepsBack: number, toOverride?: number): Change | null {
+  if (!series.length && toOverride == null) return null;
+  const to = toOverride ?? series[series.length - 1];
   const i = series.length - 1 - stepsBack;
   if (i < 0) return null;
   const from = series[i];
@@ -211,11 +211,11 @@ export default function App() {
   // sentiment daily series (0..100 index)
   const sentDailyIdx = useMemo(() => lastNonNull(points as any[], (p: any) => p.sentimentMean), [points]);
 
-  const sent1d = useMemo(() => computeChange(sentDailyIdx, 1), [sentDailyIdx]);
-  const sent1w = useMemo(() => computeChange(sentDailyIdx, 5), [sentDailyIdx]);
-  const sent1m = useMemo(() => computeChange(sentDailyIdx, 21), [sentDailyIdx]);
+  const sentNowIdx = dash ? Math.round(dash.sentiment24h.score) : sentDailyIdx.length ? Math.round(sentDailyIdx[sentDailyIdx.length - 1]) : 50;
 
-  const sentNowIdx = sentDailyIdx.length ? Math.round(sentDailyIdx[sentDailyIdx.length - 1]) : dash ? Math.round(dash.sentiment24h.score) : 50;
+  const sent1d = useMemo(() => computeChange(sentDailyIdx, 1, sentNowIdx), [sentDailyIdx, sentNowIdx]);
+  const sent1w = useMemo(() => computeChange(sentDailyIdx, 5, sentNowIdx), [sentDailyIdx, sentNowIdx]);
+  const sent1m = useMemo(() => computeChange(sentDailyIdx, 21, sentNowIdx), [sentDailyIdx, sentNowIdx]);
 
   // volume daily series (clean)
   const volDaily = useMemo(() => {
@@ -445,7 +445,7 @@ export default function App() {
 
             <div className="section">
               <div className="sectionTitle">Posts (last 24h)</div>
-              <PostsList posts={(((dash as any)?.posts24h ?? dash.summary24h?.evidencePosts ?? []) as any[])} emptyText="No posts found." />
+              <PostsList posts={(((dash as any)?.posts24h ?? dash.summary24h?.evidencePosts ?? []) as any[])} emptyText="No posts found." sentimentMode="tagOnly" />
             </div>
           </Card>
 
@@ -499,7 +499,7 @@ export default function App() {
               </div>
             }
           >
-            <PostsList posts={(dash.popularPosts24h ?? []) as any} emptyText="No popular posts in last 24h." />
+            <PostsList posts={(dash.popularPosts24h ?? []) as any} emptyText="No popular posts in last 24h." sentimentMode="tagOnly" />
           </Card>
 
           {/* KEY USERS / HIGHLIGHTS */}
