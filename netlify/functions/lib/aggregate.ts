@@ -14,14 +14,17 @@ type SeriesStore = {
       volumeClean: number;
       sentimentSumClean: number;
       sentimentCountClean: number;
+      userSentimentSumClean: number;
+      userSentimentCountClean: number;
       watchers: number | null;
     }
   >;
 };
 
-function finalIndexForMessage(m: MessageLite): number {
-  if (typeof m.finalSentimentIndex === "number") return m.finalSentimentIndex;
-  return finalSentimentFrom(m.userSentiment ?? m.stSentimentBasic ?? null, m.modelSentiment?.score ?? 0).finalSentimentIndex;
+function userSentimentToScore(v: MessageLite["userSentiment"]): number | null {
+  if (v === "Bullish") return 0.75;
+  if (v === "Bearish") return 0.25;
+  return null;
 }
 
 export async function loadSeries(symbol: string): Promise<SeriesStore> {
@@ -43,6 +46,8 @@ export async function updateSeries(symbol: string, newMessages: MessageLite[], w
         volumeClean: 0,
         sentimentSumClean: 0,
         sentimentCountClean: 0,
+        userSentimentSumClean: 0,
+        userSentimentCountClean: 0,
         watchers: null
       });
 
@@ -51,6 +56,12 @@ export async function updateSeries(symbol: string, newMessages: MessageLite[], w
       day.volumeClean += 1;
       day.sentimentSumClean += finalIndexForMessage(m);
       day.sentimentCountClean += 1;
+
+      const us = userSentimentToScore(m.userSentiment ?? m.stSentimentBasic ?? null);
+      if (us !== null) {
+        day.userSentimentSumClean += us;
+        day.userSentimentCountClean += 1;
+      }
     }
   }
 
@@ -64,6 +75,8 @@ export async function updateSeries(symbol: string, newMessages: MessageLite[], w
         volumeClean: 0,
         sentimentSumClean: 0,
         sentimentCountClean: 0,
+        userSentimentSumClean: 0,
+        userSentimentCountClean: 0,
         watchers: null
       });
     d.watchers = watchers;
@@ -82,13 +95,19 @@ export async function updateSeries(symbol: string, newMessages: MessageLite[], w
 export function seriesToPoints(series: SeriesStore, dates: string[]) {
   return dates.map((date) => {
     const d = series.days[date];
-    let mean = d && d.sentimentCountClean > 0 ? d.sentimentSumClean / d.sentimentCountClean : null;
-    if (mean !== null && mean >= -1 && mean <= 1) mean = Math.round((mean + 1) * 50);
+    const modelMean = d && d.sentimentCountClean > 0 ? d.sentimentSumClean / d.sentimentCountClean : null;
+    const userMeanRaw = d && d.userSentimentCountClean > 0 ? d.userSentimentSumClean / d.userSentimentCountClean : null;
+    const userMean = userMeanRaw === null ? null : (userMeanRaw - 0.5) * 2;
+
+    let sentimentMean: number | null = modelMean;
+    if (modelMean !== null && userMean !== null) sentimentMean = modelMean * 0.7 + userMean * 0.3;
+    else if (modelMean === null && userMean !== null) sentimentMean = userMean;
+
     return {
       date,
       volumeClean: d?.volumeClean ?? 0,
       volumeTotal: d?.volumeTotal ?? 0,
-      sentimentMean: mean,
+      sentimentMean,
       watchers: d?.watchers ?? null
     };
   });

@@ -22,18 +22,10 @@ function modelToIndex(score: number) {
   return Math.round(((v + 1) / 2) * 100);
 }
 
-function finalLabel(index: number): "bull" | "bear" | "neutral" {
-  if (index >= 55) return "bull";
-  if (index <= 45) return "bear";
-  return "neutral";
-}
-
-function finalIndexForPost(p: any): number {
-  if (typeof p?.finalSentimentIndex === "number") return clamp(Math.round(p.finalSentimentIndex), 0, 100);
-  const userSent = p?.userSentiment ?? p?.stSentimentBasic ?? null;
-  if (userSent === "Bullish") return 75;
-  if (userSent === "Bearish") return 25;
-  return modelToIndex(Number(p?.modelSentiment?.score ?? 0));
+function userSentimentToIndex(sentiment?: "Bullish" | "Bearish" | null): number | null {
+  if (sentiment === "Bullish") return 75;
+  if (sentiment === "Bearish") return 25;
+  return null;
 }
 
 function openStockTwits(username: string, id: number) {
@@ -67,6 +59,9 @@ export default function PostsList(props: { posts: PostLike[]; emptyText: string 
 
         const finalIdx = finalIndexForPost(p as any);
         const sentimentLabel = finalLabel(finalIdx);
+
+        const userSent = ((p as any)?.userSentiment ?? (p as any)?.stSentimentBasic ?? null) as "Bullish" | "Bearish" | null;
+        const usIdx = userSentimentToIndex(userSent);
 
         const likes = Number((p as any)?.likes ?? 0);
         const replies = Number((p as any)?.replies ?? 0);
@@ -126,7 +121,12 @@ export default function PostsList(props: { posts: PostLike[]; emptyText: string 
             <div className="postMeta">
               <span className="metaItem">❤ {likes}</span>
               <span className="metaItem">↩ {replies}</span>
-              <span className={"metaItem sentiment " + sentimentLabel}>{labelText(sentimentLabel)} ({finalIdx})</span>
+              {usIdx !== null ? (
+                <span className={"metaItem sentiment user " + (userSent === "Bullish" ? "bull" : "bear")}>
+                  User: {userSent} ({usIdx})
+                </span>
+              ) : null}
+              <span className={"metaItem sentiment model " + msLabel}>Model: {labelText(msLabel)} ({msIdx})</span>
             </div>
 
             {Array.isArray((p as any)?.links) && (p as any).links.length ? (

@@ -37,8 +37,8 @@ function safeMsg(x: any): MessageLite | null {
       joinDate: typeof user.joinDate === "string" ? user.joinDate : undefined,
       official: Boolean(user.official ?? false)
     },
-    stSentimentBasic,
-    userSentiment,
+    stSentimentBasic: x.stSentimentBasic ?? null,
+    userSentiment: (x.userSentiment ?? x.stSentimentBasic) ?? null,
     modelSentiment: {
       score: modelScore,
       label: modelSent.label === "bull" || modelSent.label === "bear" || modelSent.label === "neutral" ? modelSent.label : "neutral"
@@ -92,12 +92,21 @@ function comparePopular(a: MessageLite, b: MessageLite) {
   return (b.id ?? 0) - (a.id ?? 0);
 }
 
-function computeWatchersDelta(series: Awaited<ReturnType<typeof loadSeries>>, today: string, yesterday: string, currentWatchers: number | null) {
+function computeWatchersDelta(
+  series: Awaited<ReturnType<typeof loadSeries>>,
+  today: string,
+  yesterday: string,
+  currentWatchers: number | null
+) {
   const todayWatchers = series.days?.[today]?.watchers ?? null;
   const prevWatchers = series.days?.[yesterday]?.watchers ?? null;
   const latest = todayWatchers ?? currentWatchers;
-  if (latest === null || prevWatchers === null) return { watchersDelta: null };
-  return { watchersDelta: latest - prevWatchers };
+  if (latest === null || prevWatchers === null) {
+    return { watchersDelta: null };
+  }
+
+  const watchersDelta = latest - prevWatchers;
+  return { watchersDelta };
 }
 
 export default async (req: Request, _context: Context) => {
@@ -161,7 +170,15 @@ export default async (req: Request, _context: Context) => {
       .sort((a, b) => b.id - a.id)
       .slice(0, 25);
 
-    const summary = build24hSummary({ cleanMessages: clean, popular, highlights });
+    const summary = build24hSummary({
+      symbol,
+      displayName: cfg.displayName,
+      cleanMessages: clean,
+      popular,
+      highlights,
+      sentimentScore24h: sentimentScore,
+      vsPrevDay
+    });
 
     const state = await getJSON<any>(kState(symbol));
     const currentWatchers = typeof state?.lastWatchers === "number" ? state.lastWatchers : null;
