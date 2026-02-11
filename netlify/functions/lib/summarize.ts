@@ -37,6 +37,8 @@ function uniqueById(messages: MessageLite[]): MessageLite[] {
 }
 
 export function build24hSummary(args: {
+  symbol: string;
+  displayName?: string;
   cleanMessages: MessageLite[];
   popular: MessageLite[];
   highlights: MessageLite[];
@@ -57,6 +59,8 @@ function topThemes(messages: MessageLite[]) {
     .slice(0, 6)
     .map(([name, count]) => ({ name, count }));
 }
+
+  const themes = topThemes(msgs);
 
   const direction = args.sentimentScore24h > 0.15 ? "bullish" : args.sentimentScore24h < -0.15 ? "bearish" : "mixed";
   const deltaText =
