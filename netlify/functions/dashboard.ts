@@ -144,65 +144,19 @@ function buildKeyLinks(clean: MessageLite[], maxLinks = 12) {
     .slice(0, maxLinks);
 }
 
-function extractNewsRows(payload: any, cutoffMs: number): DashboardResponse["news24h"] {
+function extractNewsRows(payload: any): DashboardResponse["news24h"] {
   const rows: DashboardResponse["news24h"] = [];
-  const rawRows = Array.isArray(payload?.news) ? payload.news : Array.isArray(payload?.items) ? payload.items : [];
-
+  const rawRows = Array.isArray(payload?.news) ? payload.news : [];
   for (const n of rawRows) {
-    const id = Number(n?.id ?? n?.news_id ?? 0);
-    const title = String(n?.title ?? n?.headline ?? "").trim();
-    const url = String(n?.url ?? n?.link ?? "").trim();
-    const source = String(n?.source ?? n?.site ?? n?.publisher ?? domainOf(url) ?? "StockTwits").trim() || "StockTwits";
-    const publishedAt =
-      typeof n?.published_at === "string"
-        ? n.published_at
-        : typeof n?.created_at === "string"
-          ? n.created_at
-          : typeof n?.publishedAt === "string"
-            ? n.publishedAt
-            : undefined;
-
-    if (!id || !title || !url || !publishedAt) continue;
-    const ts = new Date(publishedAt).getTime();
-    if (!Number.isFinite(ts) || ts < cutoffMs) continue;
-
+    const id = Number(n?.id ?? 0);
+    const title = String(n?.title ?? "").trim();
+    const url = String(n?.url ?? "").trim();
+    const source = String(n?.source ?? n?.site ?? "StockTwits").trim() || "StockTwits";
+    const publishedAt = typeof n?.published_at === "string" ? n.published_at : typeof n?.created_at === "string" ? n.created_at : undefined;
+    if (!id || !title || !url) continue;
     rows.push({ id, title, url, source, publishedAt });
   }
-
-  rows.sort((a, b) => new Date(b.publishedAt ?? 0).getTime() - new Date(a.publishedAt ?? 0).getTime());
   return rows;
-}
-
-
-function computeWatchersDelta(series: any, today: string, yesterday: string, currentWatchers: number | null) {
-  if (currentWatchers == null || !Number.isFinite(currentWatchers)) {
-    return { watchersDelta: null, watchersDeltaPct: null };
-  }
-
-  let baseline: number | null = null;
-  const yesterdayWatchers = series?.days?.[yesterday]?.watchers;
-
-  if (typeof yesterdayWatchers === "number" && Number.isFinite(yesterdayWatchers)) {
-    baseline = yesterdayWatchers;
-  } else {
-    const priorDates = Object.keys(series?.days ?? {}).filter((d) => d < today).sort().reverse();
-    for (const d of priorDates) {
-      const w = series?.days?.[d]?.watchers;
-      if (typeof w === "number" && Number.isFinite(w)) {
-        baseline = w;
-        break;
-      }
-    }
-  }
-
-  if (baseline == null) return { watchersDelta: null, watchersDeltaPct: null };
-
-  const watchersDelta = currentWatchers - baseline;
-  const watchersDeltaPct = baseline === 0 ? null : (watchersDelta / baseline) * 100;
-  return {
-    watchersDelta: Number(watchersDelta.toFixed(0)),
-    watchersDeltaPct: watchersDeltaPct === null ? null : Number(watchersDeltaPct.toFixed(2))
-  };
 }
 
 export default async (req: Request, _context: Context) => {
@@ -233,10 +187,10 @@ export default async (req: Request, _context: Context) => {
     const today = toUTCDateISO(new Date());
     const yesterday = toUTCDateISO(addDays(new Date(), -1));
 
-    const [tRaw, yRaw, newsResult] = await Promise.all([
+    const [tRaw, yRaw, newsRaw] = await Promise.all([
       getJSON<any>(kMsgs(symbol, today)),
       getJSON<any>(kMsgs(symbol, yesterday)),
-      fetchSymbolNewsPage(symbol).then((v) => ({ ok: true as const, value: v })).catch(() => ({ ok: false as const, value: null }))
+      fetchSymbolNewsPage(symbol).catch(() => null)
     ]);
 
     const tMsgs = asArrayMessages(tRaw);
@@ -300,6 +254,8 @@ export default async (req: Request, _context: Context) => {
 
     const newsItems24h = newsResult.ok ? extractNewsRows(newsResult.value, cutoffMs).slice(0, 25) : [];
 
+    const news24h = extractNewsRows(newsRaw).slice(0, 25);
+
     const out: DashboardResponse = {
       symbol,
       displayName: cfg.displayName,
@@ -319,8 +275,7 @@ export default async (req: Request, _context: Context) => {
         buzzMultiple: buzzMultiple === null ? null : Number(buzzMultiple.toFixed(2))
       },
       summary24h: summary,
-      news24h: newsItems24h,
-      newsUnavailable: !newsResult.ok,
+      news24h,
       posts24h,
       popularPosts24h: popular,
       highlightedPosts: highlights,
