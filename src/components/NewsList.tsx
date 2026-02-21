@@ -12,7 +12,7 @@ type NewsItem = {
 
 export default function NewsList(props: { links: NewsItem[] | null | undefined }) {
   const links = props.links ?? [];
-  if (!links.length) return <div className="muted">No news in the past 24h.</div>;
+  if (!links.length) return <div className="muted">No news available.</div>;
 
   return (
     <div className="newsList">
