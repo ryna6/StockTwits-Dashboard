@@ -25,7 +25,7 @@ type NewsCachePayload = {
 
 const FINNHUB_BASE_URL = "https://finnhub.io/api/v1/company-news";
 const CACHE_TTL_MS = 10 * 60 * 1000;
-const RANGE_DAYS_BACK = 3;
+const RANGE_DAYS_BACK = 7;
 
 function utcDateISO(date: Date): string {
   return date.toISOString().slice(0, 10);
@@ -66,13 +66,13 @@ function itemId(raw: FinnhubCompanyNewsRaw): string {
   return `news-${dt}-${headline}`;
 }
 
-function sanitizeRawItems(items: FinnhubCompanyNewsRaw[], cutoffSeconds: number): FinnhubNewsItem[] {
+function sanitizeRawItems(items: FinnhubCompanyNewsRaw[]): FinnhubNewsItem[] {
   const out: FinnhubNewsItem[] = [];
   const seen = new Set<string>();
 
   for (const raw of items) {
     const datetime = Number(raw?.datetime ?? 0);
-    if (!Number.isFinite(datetime) || datetime < cutoffSeconds) continue;
+    if (!Number.isFinite(datetime) || datetime <= 0) continue;
 
     const headline = String(raw?.headline ?? "").trim();
     const url = String(raw?.url ?? "").trim();
@@ -127,17 +127,18 @@ async function fetchFinnhubNews(symbol: string): Promise<FinnhubCompanyNewsRaw[]
 export async function fetchCompanyNews24h(symbol: string, opts?: { forceRefresh?: boolean }): Promise<FinnhubNewsItem[]> {
   const cacheKey = kNews(symbol);
   const nowMs = Date.now();
-  const cutoffSeconds = Math.floor((nowMs - 24 * 60 * 60 * 1000) / 1000);
-
   if (!opts?.forceRefresh) {
     const cached = await getJSON<NewsCachePayload>(cacheKey);
     if (cached?.fetchedAt && Array.isArray(cached?.items) && nowMs - cached.fetchedAt < CACHE_TTL_MS) {
-      return sanitizeRawItems(cached.items as unknown as FinnhubCompanyNewsRaw[], cutoffSeconds);
+      const sanitizedCached = sanitizeRawItems(cached.items as unknown as FinnhubCompanyNewsRaw[]);
+      console.log(`[news-debug] ${symbol} source=cache cached=${cached.items.length} sanitized=${sanitizedCached.length}`);
+      return sanitizedCached;
     }
   }
 
   const rawItems = await fetchFinnhubNews(symbol);
-  const items = sanitizeRawItems(rawItems, cutoffSeconds);
+  const items = sanitizeRawItems(rawItems);
+  console.log(`[news-debug] ${symbol} source=finnhub fetched=${rawItems.length} sanitized=${items.length}`);
 
   const payload: NewsCachePayload = { fetchedAt: nowMs, items };
   await setJSON(cacheKey, payload);
