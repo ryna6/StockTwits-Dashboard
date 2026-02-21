@@ -234,7 +234,13 @@ export default function App() {
   const summarySentAt = (dash as any)?.posts24h?.[0]?.createdAt ?? dash?.summary24h?.evidencePosts?.[0]?.createdAt ?? null;
   const popularSentAt = dash?.preview?.topPost?.createdAt ?? null;
   const highlightsSentAt = dash?.preview?.topHighlight?.createdAt ?? null;
-  const topNews = dash?.news24h?.[0] ?? null;
+  const latestNews = useMemo(() => {
+    const items = [...(dash?.news24h ?? [])];
+    items.sort((a, b) => (b?.datetime ?? 0) - (a?.datetime ?? 0));
+    return items.slice(0, 8);
+  }, [dash?.news24h]);
+
+  const topNews = latestNews[0] ?? null;
   const newsSharedAt = topNews?.datetime ? new Date(topNews.datetime * 1000).toISOString() : null;
 
   return (
@@ -294,6 +300,20 @@ export default function App() {
                     </span>
                   ) : null}
                 </span>
+            </div>
+
+            <div className="brandMetaMobile">
+              <span>Last sync: {dash?.lastSyncAt ? timeAgo(dash.lastSyncAt) : "—"}</span>
+              <span>
+                Watchers: {dash?.watchers != null ? fmtInt(dash.watchers) : "—"}
+                {dash?.watchers != null && dash?.watchersDelta != null ? (
+                  <span className={"watchDelta " + (dash.watchersDelta > 0 ? "up" : dash.watchersDelta < 0 ? "down" : "flat")}>
+                    {" "}
+                    ({dash.watchersDelta > 0 ? "+" : ""}
+                    {fmtInt(dash.watchersDelta)})
+                  </span>
+                ) : null}
+              </span>
             </div>
           </div>
 
@@ -467,14 +487,14 @@ export default function App() {
                       <span className="newsMiniSource">{topNews.source}</span>
                     </div>
                   ) : (
-                    <span className="muted">No news in the past 24h.</span>
+                    <span className="muted">No news available.</span>
                   )}
                 </div>
                 {newsSharedAt ? <div className="overviewStamp">posted {timeAgo(newsSharedAt)}</div> : null}
               </div>
             }
           >
-            <NewsList links={dash.news24h ?? []} />
+            <NewsList links={latestNews} />
           </Card>
 
           {/* POPULAR */}
