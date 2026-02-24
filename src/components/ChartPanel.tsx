@@ -7,13 +7,21 @@ ChartJS.register(CategoryScale, LinearScale, BarElement, LineElement, PointEleme
 
 export default function ChartPanel(props: { stats: StatsResponse | null }) {
   const s = props.stats;
-  const points = Array.isArray(s?.points) ? s.points : [];
+  const points = (Array.isArray(s?.points) ? s.points : [])
+    .filter((p) => p && typeof p.date === "string")
+    .map((p) => ({
+      ...p,
+      volumeClean: Number.isFinite(Number(p.volumeClean)) ? Number(p.volumeClean) : 0,
+      sentimentMean: Number.isFinite(Number(p.sentimentMean)) ? Number(p.sentimentMean) : null,
+      watchers: Number.isFinite(Number(p.watchers)) ? Number(p.watchers) : null,
+      priceClose: Number.isFinite(Number(p.priceClose)) ? Number(p.priceClose) : null
+    }));
 
   if (!points.length) {
     return <div className="muted">No stats available yet. Press Refresh to sync.</div>;
   }
 
-  const labels = points.map((p) => p.date);
+  const labels = points.map((p) => p.date || "—");
   const vol = points.map((p) => p.volumeClean);
   const sent = points.map((p) => (p.sentimentMean === null ? null : Math.max(0, Math.min(100, Math.round(p.sentimentMean)))));
   const watchers = points.map((p) => (p.watchers === null ? null : p.watchers));

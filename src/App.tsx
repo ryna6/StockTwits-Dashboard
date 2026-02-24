@@ -115,8 +115,13 @@ export default function App() {
       setDash(d);
 
       if (opts?.includeStats) {
-        const s = await apiStats(sym, range);
-        setStats(s);
+        try {
+          const s = await apiStats(sym, range);
+          setStats(s);
+        } catch (statsErr: any) {
+          console.error("[advanced-stats] Failed to load stats", { symbol: sym, range, error: statsErr });
+          setStats({ symbol: sym, rangeDays: range, points: [], hasWatchers: false, hasPrice: false });
+        }
       }
 
       lastSuccessfulLoadRef.current = Date.now();
@@ -533,7 +538,7 @@ export default function App() {
                 <div className="overviewMain">
                   {dash.preview?.topHighlight ? (
                     <>
-                      <span className="mono">@{dash.preview?.topHighlight?.user?.username ?? "unknown"}</span>:{" "}
+                      <span className="mono">@{dash.preview?.topHighlight?.user?.username ?? "unknown"}</span>: {" "}
                       {(dash.preview?.topHighlight?.body ?? "").slice(0, 160)}
                       {(dash.preview?.topHighlight?.body ?? "").length > 160 ? "…" : ""}
                     </>
@@ -545,7 +550,7 @@ export default function App() {
               </div>
             }
           >
-            <PostsList posts={(dash.highlightedPosts ?? []) as any} emptyText="No key-user posts found." />
+            <PostsList posts={(dash.highlightedPosts ?? []) as any} emptyText="No key-user posts found." sentimentMode="binaryTagOnly" />
           </Card>
 
           {/* CHARTS */}
