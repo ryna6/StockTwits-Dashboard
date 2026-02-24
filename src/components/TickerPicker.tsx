@@ -16,6 +16,10 @@ export default function TickerPicker(props: {
     return props.options.find((o) => o.symbol.toUpperCase() === s) ?? null;
   }, [props.options, props.value]);
 
+  const maxSymbolLen = useMemo(() => {
+    return props.options.reduce((maxLen, o) => Math.max(maxLen, String(o.symbol ?? "").length), 0);
+  }, [props.options]);
+
   useEffect(() => {
     const onDoc = (e: MouseEvent) => {
       if (!wrapRef.current) return;
@@ -26,7 +30,7 @@ export default function TickerPicker(props: {
   }, []);
 
   return (
-    <div className="tickerPicker" ref={wrapRef}>
+    <div className="tickerPicker" ref={wrapRef} style={{ ["--ticker-max-symbol-len" as any]: maxSymbolLen }}>
       <div className="tickerLabel">Ticker</div>
 
       <button className="tickerButton" onClick={() => setOpen((v) => !v)} aria-haspopup="listbox" aria-expanded={open}>
