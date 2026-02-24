@@ -16,7 +16,16 @@ export default async (req: Request, _context: Context) => {
     // Ensure price is available (optional; no-op without FINNHUB_API_KEY)
     const fromUnix = Math.floor(new Date(dates[0] + "T00:00:00Z").getTime() / 1000);
     const toUnix = Math.floor(Date.now() / 1000);
-    await ensurePriceRange(symbol, fromUnix, toUnix);
+    try {
+      await ensurePriceRange(symbol, fromUnix, toUnix);
+    } catch (priceErr: any) {
+      console.error("[stats] price fetch failed", {
+        symbol,
+        fromUnix,
+        toUnix,
+        error: String(priceErr?.message ?? priceErr)
+      });
+    }
 
     const [series, price] = await Promise.all([loadSeries(symbol), loadPrice(symbol)]);
 
@@ -45,4 +54,3 @@ export default async (req: Request, _context: Context) => {
     });
   }
 };
-

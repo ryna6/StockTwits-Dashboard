@@ -33,9 +33,17 @@ export async function ensurePriceRange(symbol: string, fromUnix: number, toUnix:
   if (!res.ok) return;
 
   const data = (await res.json()) as any;
-  if (data?.s !== "ok") return;
+  if (data?.s !== "ok") {
+    console.warn("[finnhub] candle response not ok", { symbol, status: data?.s, error: data?.error ?? null });
+    return;
+  }
+  if (!Array.isArray(data?.t) || !Array.isArray(data?.o) || !Array.isArray(data?.h) || !Array.isArray(data?.l) || !Array.isArray(data?.c) || !Array.isArray(data?.v)) {
+    console.warn("[finnhub] candle response missing arrays", { symbol });
+    return;
+  }
 
-  for (let i = 0; i < data.t.length; i++) {
+  const count = Math.min(data.t.length, data.o.length, data.h.length, data.l.length, data.c.length, data.v.length);
+  for (let i = 0; i < count; i++) {
     const date = new Date(data.t[i] * 1000).toISOString().slice(0, 10);
     ps.candles[date] = { o: data.o[i], h: data.h[i], l: data.l[i], c: data.c[i], v: data.v[i] };
   }
