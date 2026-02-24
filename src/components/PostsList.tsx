@@ -78,7 +78,7 @@ type PostLike = Partial<MessageLite> & {
   replyToId?: number | null;
 };
 
-export default function PostsList(props: { posts?: PostLike[]; emptyText: string; sentimentMode?: "detailed" | "tagOnly" }) {
+export default function PostsList(props: { posts?: PostLike[]; emptyText: string; sentimentMode?: "detailed" | "tagOnly" | "binaryTagOnly" }) {
   const posts = Array.isArray(props.posts) ? props.posts : [];
   if (posts.length === 0) return <div className="muted">{props.emptyText}</div>;
 
@@ -96,6 +96,9 @@ export default function PostsList(props: { posts?: PostLike[]; emptyText: string
         const sentimentLabel = labelFromIndex(finalIdx);
         const userTagLabel = userTagLabelForPost(p as any);
         const userTagClass = userTagLabel === "Bullish" ? "bull" : userTagLabel === "Bearish" ? "bear" : "neutral";
+        const binarySentiment =
+          userTagLabel === "Bullish" || userTagLabel === "Bearish" ? userTagLabel : finalIdx >= 50 ? "Bullish" : "Bearish";
+        const binarySentimentClass = binarySentiment === "Bullish" ? "bull" : "bear";
 
         const msIdx = modelToIndex(Number((p as any)?.modelSentiment?.score ?? 50));
         const msLabel = labelFromIndex(msIdx);
@@ -163,6 +166,8 @@ export default function PostsList(props: { posts?: PostLike[]; emptyText: string
               <span className="metaItem">↩ {replies}</span>
               {sentimentMode === "tagOnly" ? (
                 <span className={"metaItem sentiment " + userTagClass}>{userTagLabel}</span>
+              ) : sentimentMode === "binaryTagOnly" ? (
+                <span className={"metaItem sentiment " + binarySentimentClass}>{binarySentiment}</span>
               ) : (
                 <>
                   <span className={"metaItem sentiment " + sentimentLabel}>Final: {labelText(sentimentLabel)} ({finalIdx})</span>

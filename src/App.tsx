@@ -78,6 +78,25 @@ function lastNonNull<T>(arr: T[], pick: (x: any) => number | null | undefined) {
   return out;
 }
 
+function bullishBearishForPost(p: any): "Bullish" | "Bearish" {
+  const explicit = p?.sentimentTagLabel;
+  if (explicit === "Bullish" || explicit === "Bearish") return explicit;
+
+  const userSent = p?.userSentiment ?? p?.stSentimentBasic;
+  if (userSent === "Bullish" || userSent === "Bearish") return userSent;
+
+  const idx = Number(p?.finalSentimentIndex);
+  if (Number.isFinite(idx)) return idx >= 50 ? "Bullish" : "Bearish";
+
+  const model = Number(p?.modelSentiment?.score);
+  if (Number.isFinite(model)) {
+    const modelIdx = model >= 0 && model <= 100 ? model : ((Math.max(-1, Math.min(1, model)) + 1) / 2) * 100;
+    return modelIdx >= 50 ? "Bullish" : "Bearish";
+  }
+
+  return "Bearish";
+}
+
 export default function App() {
   const [tickers, setTickers] = useState<TickerOpt[]>([]);
   const [symbol, setSymbol] = useState<string>("");
@@ -115,8 +134,13 @@ export default function App() {
       setDash(d);
 
       if (opts?.includeStats) {
-        const s = await apiStats(sym, range);
-        setStats(s);
+        try {
+          const s = await apiStats(sym, range);
+          setStats(s);
+        } catch (statsErr: any) {
+          console.error("[advanced-stats] Failed to load stats", { symbol: sym, range, error: statsErr });
+          setStats({ symbol: sym, rangeDays: range, points: [], hasWatchers: false, hasPrice: false });
+        }
       }
 
       lastSuccessfulLoadRef.current = Date.now();
@@ -234,6 +258,7 @@ export default function App() {
   const summarySentAt = (dash as any)?.posts24h?.[0]?.createdAt ?? dash?.summary24h?.evidencePosts?.[0]?.createdAt ?? null;
   const popularSentAt = dash?.preview?.topPost?.createdAt ?? null;
   const highlightsSentAt = dash?.preview?.topHighlight?.createdAt ?? null;
+  const topHighlightSentiment = dash?.preview?.topHighlight ? bullishBearishForPost(dash.preview.topHighlight as any) : null;
   const latestNews = useMemo(() => {
     const items = [...(dash?.news24h ?? [])];
     items.sort((a, b) => (b?.datetime ?? 0) - (a?.datetime ?? 0));
@@ -533,7 +558,11 @@ export default function App() {
                 <div className="overviewMain">
                   {dash.preview?.topHighlight ? (
                     <>
-                      <span className="mono">@{dash.preview?.topHighlight?.user?.username ?? "unknown"}</span>:{" "}
+                      <span className="mono">@{dash.preview?.topHighlight?.user?.username ?? "unknown"}</span>
+                      <span className={"metaItem sentiment " + (topHighlightSentiment === "Bullish" ? "bull" : "bear")} style={{ marginLeft: 8 }}>
+                        {topHighlightSentiment}
+                      </span>
+                      :{" "}
                       {(dash.preview?.topHighlight?.body ?? "").slice(0, 160)}
                       {(dash.preview?.topHighlight?.body ?? "").length > 160 ? "…" : ""}
                     </>
@@ -545,7 +574,7 @@ export default function App() {
               </div>
             }
           >
-            <PostsList posts={(dash.highlightedPosts ?? []) as any} emptyText="No key-user posts found." />
+            <PostsList posts={(dash.highlightedPosts ?? []) as any} emptyText="No key-user posts found." sentimentMode="binaryTagOnly" />
           </Card>
 
           {/* CHARTS */}
