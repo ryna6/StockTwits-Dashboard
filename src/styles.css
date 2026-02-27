@@ -855,3 +855,40 @@ a:hover{ text-decoration: underline; }
 
 .modalFallback{display:flex;flex-direction:column;gap:8px;padding:12px 2px;}
 .modalFallbackTitle{font-weight:700;}
+
+.econOverview{
+  display:flex;
+  align-items:center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.econToolbar{
+  display:flex;
+  justify-content: space-between;
+  align-items:center;
+  gap: 10px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+.econTabs{ display:flex; gap:8px; flex-wrap:wrap; }
+.econTab{
+  border: 1px solid var(--border);
+  background: rgba(255,255,255,0.05);
+  color: var(--text);
+  border-radius: 10px;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-weight: 650;
+}
+.econTab.active{ background: rgba(255,255,255,0.14); }
+.econSourceNote{ margin-bottom: 6px; }
+.econDateGroup{ margin-top: 12px; }
+.econTableWrap{ overflow:auto; border: 1px solid var(--border); border-radius: 12px; }
+.econTable{ width:100%; border-collapse: collapse; min-width: 780px; font-size: 13px; }
+.econTable th, .econTable td{ padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.08); text-align:left; }
+.econResult.good{ color: var(--good); font-weight: 750; }
+.econResult.bad{ color: var(--bad); font-weight: 750; }
+.econResult.neutral{ color: var(--neutral); font-weight: 750; }
+.econImp.high{ border-color: rgba(255,92,92,0.5); }
+.econImp.medium{ border-color: rgba(255,210,120,0.45); }
+.econImp.low{ border-color: rgba(160,210,255,0.45); }

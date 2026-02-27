@@ -45,3 +45,39 @@ export async function apiBackfill(symbol: string, days = 30) {
   });
   return await r.json().catch(() => ({}));
 }
+
+export type EconCalendarResponse = {
+  meta: {
+    start: string;
+    end: string;
+    lastUpdated: string;
+    source: {
+      schedule: string;
+      actuals: string;
+      consensus: string;
+    };
+    note: string;
+  };
+  events: Array<{
+    date: string;
+    timeET: string | null;
+    key: string;
+    name: string;
+    importance: "high" | "medium" | "low";
+    actual: number | string | null;
+    consensus: number | string | null;
+    previous: number | string | null;
+    change: number | null;
+    pctChange: number | null;
+    unit: string | null;
+    goodBad: "good" | "bad" | "neutral";
+  }>;
+};
+
+export async function apiEconCalendar(start: string, end: string, force = false): Promise<EconCalendarResponse> {
+  const q = new URLSearchParams({ start, end });
+  if (force) q.set("force", "1");
+  const r = await fetch(`/.netlify/functions/econ_calendar?${q.toString()}`);
+  if (!r.ok) throw new Error(await readError(r));
+  return await r.json();
+}

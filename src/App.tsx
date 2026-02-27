@@ -7,6 +7,7 @@ import PostsList from "./components/PostsList";
 import NewsList from "./components/NewsList";
 import TickerPicker from "./components/TickerPicker";
 import ChartPanel from "./components/ChartPanel";
+import EconomicCalendarCard from "./components/EconomicCalendarCard";
 
 type CardKey = "sentiment" | "volume" | "summary" | "news" | "popular" | "highlights" | "charts";
 type TickerOpt = { symbol: string; displayName: string; logoUrl?: string };
@@ -552,6 +553,9 @@ export default function App() {
           >
             <PostsList posts={(dash.highlightedPosts ?? []) as any} emptyText="No key-user posts found." sentimentMode="binaryTagOnly" />
           </Card>
+
+
+          <EconomicCalendarCard />
 
           {/* CHARTS */}
           <div className="card full">
